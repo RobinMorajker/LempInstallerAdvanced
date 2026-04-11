@@ -1,5 +1,8 @@
 node_modules/
 .sessions/
+*.db
+*.db-shm
+*.db-wal
 apps/
 .env
 cookies.txt

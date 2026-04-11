@@ -48,6 +48,8 @@ services:
     image: mariadb:10.11
     container_name: lemp_db
     restart: always
+    ports:
+      - "3306:3306"    # exposed so native (non-Docker) engine can reach it on 127.0.0.1
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
       MYSQL_DATABASE: ${DB_NAME:-mydb}

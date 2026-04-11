@@ -64,9 +64,21 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
     if (fs.existsSync(appPath)) {
       fs.rmSync(appPath, { recursive: true, force: true });
     }
-    // Let git clone create the directory itself
+    // Let git clone create the directory itself.
+    // Try the requested branch first; fall back to repo default if not found.
     const git = simpleGit();
-    await git.clone(repo, appPath, ["--branch", branch, "--depth", "1"]);
+    try {
+      await git.clone(repo, appPath, ["--branch", branch, "--depth", "1"]);
+    } catch (cloneErr) {
+      if (cloneErr.message.includes("Remote branch") && cloneErr.message.includes("not found")) {
+        console.warn(`[deploy] Branch '${branch}' not found — retrying with repo default branch`);
+        // Clean up partial clone before retry
+        if (fs.existsSync(appPath)) fs.rmSync(appPath, { recursive: true, force: true });
+        await git.clone(repo, appPath, ["--depth", "1"]);
+      } else {
+        throw cloneErr;
+      }
+    }
   }
 
   // ── Step 2: Provision database ───────────────────────────────────────────

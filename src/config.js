@@ -1,10 +1,20 @@
-require("dotenv").config();
+require("dotenv").config({ override: true });
 const path = require("path");
 
 module.exports = {
   // Where cloned app repos are stored on the host.
-  // Defaults to <project-root>/apps — works on both Windows and Linux.
-  appsDir: process.env.APPS_DIR || path.join(__dirname, "..", "apps"),
+  // On Windows: if APPS_DIR is a Linux absolute path (starts with /), ignore it
+  //             and fall back to the project-relative default instead.
+  // On Linux:   any absolute path is used as-is; relative paths are anchored to
+  //             the project root so they don't depend on CWD.
+  appsDir: (() => {
+    const raw = process.env.APPS_DIR;
+    const projectApps = path.join(__dirname, "..", "apps");
+    if (!raw) return projectApps;
+    // On Windows a Linux-style absolute path is invalid — skip it
+    if (process.platform === "win32" && raw.startsWith("/")) return projectApps;
+    return path.isAbsolute(raw) ? raw : path.join(__dirname, "..", raw);
+  })(),
 
   // Docker network shared by all services (matches docker-compose project name)
   dockerNetwork: process.env.DOCKER_NETWORK || "lemp_default",

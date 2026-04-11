@@ -1,7 +1,7 @@
 const path = require("path");
 const express = require("express");
 const session = require("express-session");
-const FileStore = require("session-file-store")(session);
+const SQLiteStore = require("connect-sqlite3")(session);
 const { deploy, destroy, getStatus, listDeployments } = require("./deployService");
 const { listAppContainers, inspectContainer } = require("./dockerService");
 const authRouter = require("./routes/auth");
@@ -9,12 +9,12 @@ const config = require("./config");
 
 const app = express();
 
+// SQLite-backed sessions — cross-platform, survives restarts, no Windows rename issues
 app.use(session({
-  store: new FileStore({
-    path:         path.join(__dirname, "..", ".sessions"),
-    ttl:          8 * 60 * 60,  // 8 hours in seconds
-    reapInterval: 3600,         // clean up expired files every hour
-    logFn:        () => {}      // silence ENOENT retry noise for unauthenticated sessions
+  store: new SQLiteStore({
+    db:  "sessions.db",
+    dir: path.join(__dirname, "..", ".sessions"),
+    ttl: 8 * 60 * 60   // 8 hours in seconds
   }),
   secret:            config.sessionSecret,
   resave:            false,
