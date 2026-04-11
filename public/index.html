@@ -277,6 +277,10 @@
           <input type="text" id="branch" value="main" />
         </div>
         <div class="field">
+          <label>Web Root <span style="color:var(--muted);font-weight:400">(optional — e.g. <code style="font-size:11px">public</code>)</span></label>
+          <input type="text" id="webRoot" placeholder="leave blank for repo root" />
+        </div>
+        <div class="field">
           <label>Let's Encrypt Email <span style="color:var(--muted);font-weight:400">(for SSL)</span></label>
           <input type="email" id="email" placeholder="you@example.com" />
         </div>
@@ -516,6 +520,7 @@
     const btn = document.getElementById('deployBtn');
     btn.disabled = true;
     btn.textContent = 'Deploying…';
+    const webRootVal = document.getElementById('webRoot').value.trim();
     const body = {
       repo:    document.getElementById('repo').value.trim(),
       domain:  document.getElementById('domain').value.trim(),
@@ -523,6 +528,7 @@
       ssl:     document.getElementById('ssl').checked,
       email:   document.getElementById('email').value.trim() || undefined,
       appName: document.getElementById('appName').value.trim() || undefined,
+      webRoot: webRootVal || undefined,
     };
     try {
       const res  = await fetch('/deploy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

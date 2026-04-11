@@ -57,9 +57,10 @@ function isValidAppName(name) {
  *   ssl      {boolean} optional  - Default true
  *   email    {string}  optional  - Let's Encrypt contact email
  *   branch   {string}  optional  - Default "main"
+ *   webRoot  {string}  optional  - Subdirectory used as document root (e.g. "public")
  */
 app.post("/deploy", async (req, res) => {
-  const { repo, domain, appName, ssl, email, branch } = req.body;
+  const { repo, domain, appName, ssl, email, branch, webRoot } = req.body;
 
   if (!repo || !isValidGitUrl(repo)) {
     return res.status(400).json({ error: "Invalid or missing repo URL (must end in .git)" });
@@ -72,7 +73,7 @@ app.post("/deploy", async (req, res) => {
   }
 
   try {
-    const result = await deploy({ repo, domain, appName, ssl, email, branch });
+    const result = await deploy({ repo, domain, appName, ssl, email, branch, webRoot });
     res.status(202).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

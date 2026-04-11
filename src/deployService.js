@@ -5,6 +5,7 @@ const { v4: uuid } = require("uuid");
 
 const config = require("./config");
 const docker = require("./dockerService");
+const { createNginxSidecar, removeAppContainers } = docker;
 const db = require("./dbService");
 const npm = require("./npmService");
 
@@ -22,9 +23,10 @@ const deployments = new Map();
  * @param {boolean} [opts.ssl=true]
  * @param {string}  [opts.email]   - Let's Encrypt contact email
  * @param {string}  [opts.branch="main"] - Branch to clone
+ * @param {string}  [opts.webRoot]       - Subdirectory to use as web root (e.g. "public")
  * @returns {Promise<{ deployId, appName, domain, status }>}
  */
-async function deploy({ repo, domain, appName, ssl = true, email, branch = "main" }) {
+async function deploy({ repo, domain, appName, ssl = true, email, branch = "main", webRoot }) {
   // Generate a stable, short app name from the domain when not supplied
   const name = appName || "app_" + uuid().slice(0, 8);
   const deployId = uuid();
@@ -33,7 +35,7 @@ async function deploy({ repo, domain, appName, ssl = true, email, branch = "main
   _setStatus(deployId, { status: "pending", appName: name, domain, repo });
 
   // Run asynchronously so the HTTP response returns immediately
-  _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch }).catch(
+  _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch, webRoot }).catch(
     (err) => {
       console.error(`[deploy] ${name} failed:`, err.message);
       _setStatus(deployId, { status: "failed", error: err.message });
@@ -46,7 +48,7 @@ async function deploy({ repo, domain, appName, ssl = true, email, branch = "main
 /**
  * Core deployment pipeline — runs in the background.
  */
-async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch }) {
+async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch, webRoot }) {
   // ── Step 1: Clone / pull ──────────────────────────────────────────────────
   _setStatus(deployId, { status: "cloning" });
 
@@ -85,9 +87,9 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
   _setStatus(deployId, { status: "provisioning_db" });
   const { dbName, dbUser, dbPassword } = await db.createDatabase(name);
 
-  // ── Step 3: (Re)create container ─────────────────────────────────────────
+  // ── Step 3: (Re)create containers (PHP-FPM + Nginx sidecar) ─────────────
   _setStatus(deployId, { status: "building_container" });
-  await docker.removeContainer(name);
+  await removeAppContainers(name);    // removes both nginx_<name> and <name>
   await docker.createContainer({
     name,
     hostPath: appPath,
@@ -102,10 +104,13 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
       APP_ENV: "production"
     }
   });
+  // Nginx sidecar: serves HTTP on port 80, proxies PHP to the FPM container
+  await createNginxSidecar(name, appPath, webRoot);
 
   // ── Step 4: Configure domain + SSL ───────────────────────────────────────
+  // NPM forwards to the Nginx sidecar (nginx_<name>) on port 80
   _setStatus(deployId, { status: "configuring_proxy" });
-  await npm.createProxyHost({ domain, appName: name, ssl, email });
+  await npm.createProxyHost({ domain, appName: `nginx_${name}`, ssl, email });
 
   // ── Step 5: Done ─────────────────────────────────────────────────────────
   _setStatus(deployId, { status: "live" });
@@ -119,7 +124,7 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
  * @param {string} domain
  */
 async function destroy(appName, domain) {
-  await docker.removeContainer(appName);
+  await removeAppContainers(appName);   // removes nginx_<appName> + <appName>
   await db.dropDatabase(appName);
   await npm.deleteProxyHostByDomain(domain);
 
