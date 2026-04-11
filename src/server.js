@@ -9,6 +9,14 @@ const config = require("./config");
 
 const app = express();
 
+// ── Auth middleware ───────────────────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  if (!req.session?.accessToken) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  next();
+}
+
 // SQLite-backed sessions — cross-platform, survives restarts, no Windows rename issues
 app.use(session({
   store: new SQLiteStore({
@@ -59,7 +67,7 @@ function isValidAppName(name) {
  *   branch   {string}  optional  - Default "main"
  *   webRoot  {string}  optional  - Subdirectory used as document root (e.g. "public")
  */
-app.post("/deploy", async (req, res) => {
+app.post("/deploy", requireAuth, async (req, res) => {
   const { repo, domain, appName, ssl, email, branch, webRoot } = req.body;
 
   if (!repo || !isValidGitUrl(repo)) {
@@ -84,7 +92,7 @@ app.post("/deploy", async (req, res) => {
  * GET /deploy/:deployId
  * Poll deployment status.
  */
-app.get("/deploy/:deployId", (req, res) => {
+app.get("/deploy/:deployId", requireAuth, (req, res) => {
   const status = getStatus(req.params.deployId);
   if (!status) return res.status(404).json({ error: "Deployment not found" });
   res.json(status);
@@ -94,7 +102,7 @@ app.get("/deploy/:deployId", (req, res) => {
  * GET /deployments
  * List all tracked deployments.
  */
-app.get("/deployments", (_req, res) => {
+app.get("/deployments", requireAuth, (_req, res) => {
   res.json(listDeployments());
 });
 
@@ -104,7 +112,7 @@ app.get("/deployments", (_req, res) => {
  *
  * Query param: domain  (required to remove the proxy host)
  */
-app.delete("/deploy/:appName", async (req, res) => {
+app.delete("/deploy/:appName", requireAuth, async (req, res) => {
   const { appName } = req.params;
   const { domain } = req.query;
 
@@ -127,7 +135,7 @@ app.delete("/deploy/:appName", async (req, res) => {
  * GET /containers
  * List all running app containers.
  */
-app.get("/containers", async (_req, res) => {
+app.get("/containers", requireAuth, async (_req, res) => {
   try {
     const containers = await listAppContainers();
     res.json(containers);
@@ -140,7 +148,7 @@ app.get("/containers", async (_req, res) => {
  * GET /containers/:name
  * Inspect a single app container.
  */
-app.get("/containers/:name", async (req, res) => {
+app.get("/containers/:name", requireAuth, async (req, res) => {
   try {
     const info = await inspectContainer(req.params.name);
     res.json(info);

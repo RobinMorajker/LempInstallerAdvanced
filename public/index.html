@@ -458,7 +458,9 @@
   // ── Deployments ───────────────────────────────────────────────────────────────
   async function loadDeployments() {
     try {
-      const data = await (await fetch('/deployments')).json();
+      const resp = await fetch('/deployments');
+      if (resp.status === 401) return; // not logged in — silently skip
+      const data = await resp.json();
       const body = document.getElementById('deploymentsBody');
       document.getElementById('deployCount').textContent = data.length;
       if (!data.length) {
@@ -481,7 +483,9 @@
   // ── Containers ────────────────────────────────────────────────────────────────
   async function loadContainers() {
     try {
-      const data = await (await fetch('/containers')).json();
+      const resp = await fetch('/containers');
+      if (resp.status === 401) return; // not logged in — silently skip
+      const data = await resp.json();
       const body = document.getElementById('containersBody');
       document.getElementById('containerCount').textContent = data.length;
       if (!data.length) {
@@ -533,6 +537,7 @@
     try {
       const res  = await fetch('/deploy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
+      if (res.status === 401) { window.location.href = '/auth/github'; return; }
       if (!res.ok) throw new Error(data.error);
       showToast(`Deployment started: ${data.appName}`, 'ok');
       e.target.reset();
