@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LEMP Deploy Engine</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --accent:    #3fb950;
+      --accent-dim:#1a3a22;
+      --danger:    #f85149;
+      --warn:      #d29922;
+      --info:      #58a6ff;
+      --radius:    8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header .logo { font-size: 18px; font-weight: 600; color: var(--accent); }
+    header .sub  { color: var(--muted); font-size: 12px; }
+    header .dot  {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Auth area in header ── */
+    #authArea {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .gh-login-btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--text); color: #0d1117;
+      border: none; border-radius: 6px;
+      padding: 7px 14px; font-size: 13px; font-weight: 600;
+      cursor: pointer; text-decoration: none;
+      transition: opacity .15s;
+    }
+    .gh-login-btn:hover { opacity: .85; }
+    .gh-login-btn svg { flex-shrink: 0; }
+
+    .user-pill {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .user-pill img {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 1px solid var(--border);
+    }
+    .user-pill .uname { font-size: 13px; font-weight: 500; }
+    .logout-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 6px;
+      padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    .logout-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+    /* ── Layout ── */
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-body { padding: 20px; }
+
+    /* ── Repo picker ── */
+    #repoPicker { margin-bottom: 16px; }
+    #repoSearch {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px 6px 0 0;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      outline: none;
+    }
+    #repoSearch:focus { border-color: var(--accent); }
+    #repoList {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+      background: var(--bg);
+    }
+    .repo-item {
+      padding: 9px 12px;
+      cursor: pointer;
+      border-top: 1px solid var(--border);
+      transition: background .1s;
+    }
+    .repo-item:first-child { border-top: none; }
+    .repo-item:hover { background: #1c2128; }
+    .repo-item.selected { background: var(--accent-dim); }
+    .repo-item .rname  { font-size: 13px; font-weight: 500; }
+    .repo-item .rdesc  { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .repo-item .rprivate { font-size: 10px; color: var(--warn); margin-left: 6px; }
+    #repoLoading { padding: 16px; text-align: center; color: var(--muted); font-size: 12px; }
+
+    /* ── Form ── */
+    .field { margin-bottom: 16px; }
+    label  { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+    input[type="text"], input[type="email"], input[type="url"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: var(--accent); }
+    .check-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--text);
+    }
+    input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 18px;
+      border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #0d1117; width: 100%; justify-content: center; }
+    .btn-primary:hover:not(:disabled) { opacity: .88; }
+    .btn-danger  { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 4px 10px; font-size: 12px; }
+    .btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+
+    /* ── Right column ── */
+    .right-col { display: flex; flex-direction: column; gap: 24px; }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th    { color: var(--muted); font-weight: 500; text-align: left; padding: 0 12px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+    td    { padding: 10px 12px; border-top: 1px solid var(--border); vertical-align: middle; }
+    tr:first-child td { border-top: none; }
+    .empty { color: var(--muted); text-align: center; padding: 28px; font-size: 13px; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 12px; font-size: 11px; font-weight: 600;
+      text-transform: capitalize; white-space: nowrap;
+    }
+    .badge-live                { background: var(--accent-dim); color: var(--accent); }
+    .badge-pending,
+    .badge-cloning,
+    .badge-provisioning_db,
+    .badge-building_container,
+    .badge-configuring_proxy   { background: #1f2d1f; color: var(--warn); }
+    .badge-failed              { background: #2d1f1f; color: var(--danger); }
+    .badge-running             { background: var(--accent-dim); color: var(--accent); }
+    .badge-exited              { background: #2a2a2a; color: var(--muted); }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 18px;
+      font-size: 13px; max-width: 340px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.5);
+      opacity: 0; transform: translateY(8px);
+      transition: opacity .2s, transform .2s;
+      pointer-events: none; z-index: 100;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.ok   { border-left: 3px solid var(--accent); }
+    #toast.err  { border-left: 3px solid var(--danger); }
+
+    a.domain { color: var(--info); text-decoration: none; }
+    a.domain:hover { text-decoration: underline; }
+    .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; color: var(--muted); }
+
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">&#9654; LEMP Deploy Engine</span>
+  <span class="sub">Raspberry Pi 5</span>
+  <span class="dot"></span>
+  <div id="authArea"><!-- filled by JS --></div>
+</header>
+
+<main>
+  <!-- ── Deploy Form ── -->
+  <div class="card">
+    <div class="card-header">&#43; New Deployment</div>
+    <div class="card-body">
+
+      <!-- Repo picker (shown when logged in) -->
+      <div id="repoPicker" style="display:none">
+        <div class="field">
+          <label>Pick a Repository</label>
+          <input type="text" id="repoSearch" placeholder="Search repos…" autocomplete="off" />
+          <div id="repoList"><div id="repoLoading">Loading repos…</div></div>
+        </div>
+      </div>
+
+      <form id="deployForm">
+        <div class="field">
+          <label>GitHub Repo URL</label>
+          <input type="url" id="repo" placeholder="https://github.com/user/app.git" required />
+        </div>
+        <div class="field">
+          <label>Domain</label>
+          <input type="text" id="domain" placeholder="myapp.example.com" required />
+        </div>
+        <div class="field">
+          <label>App Name <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+          <input type="text" id="appName" placeholder="auto-generated" />
+        </div>
+        <div class="field">
+          <label>Branch</label>
+          <input type="text" id="branch" value="main" />
+        </div>
+        <div class="field">
+          <label>Let's Encrypt Email <span style="color:var(--muted);font-weight:400">(for SSL)</span></label>
+          <input type="email" id="email" placeholder="you@example.com" />
+        </div>
+        <div class="field">
+          <div class="check-row">
+            <input type="checkbox" id="ssl" checked />
+            <label for="ssl" style="margin:0;cursor:pointer">Enable SSL (Let's Encrypt)</label>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="deployBtn">
+          &#9654;&nbsp; Deploy
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Right column ── -->
+  <div class="right-col">
+
+    <div class="card">
+      <div class="card-header">
+        &#128640; Deployments
+        <span id="deployCount" style="margin-left:auto;background:var(--border);border-radius:12px;padding:2px 8px;font-size:11px;font-weight:400">0</span>
+      </div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead><tr><th>App</th><th>Domain</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+          <tbody id="deploymentsBody">
+            <tr><td colspan="5" class="empty">No deployments yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        &#9881; Containers
+        <span id="containerCount" style="margin-left:auto;background:var(--border);border-radius:12px;padding:2px 8px;font-size:11px;font-weight:400">0</span>
+      </div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th></tr></thead>
+          <tbody id="containersBody">
+            <tr><td colspan="4" class="empty">No containers.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // ── GitHub SVG icon ───────────────────────────────────────────────────────────
+  const GH_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52
+    -.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2
+    -3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82
+    .64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08
+    2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01
+    1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+  </svg>`;
+
+  // ── Toast ─────────────────────────────────────────────────────────────────────
+  let toastTimer;
+  function showToast(msg, type = 'ok') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'show ' + type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ''; }, 3500);
+  }
+
+  // ── Badges / helpers ──────────────────────────────────────────────────────────
+  function badge(status) {
+    return `<span class="badge badge-${status}">${status.replace(/_/g,' ')}</span>`;
+  }
+  function relTime(iso) {
+    if (!iso) return '—';
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    return Math.floor(s/3600) + 'h ago';
+  }
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────────
+  let currentUser = null;
+  let allRepos    = [];
+
+  async function loadAuth() {
+    try {
+      const res = await fetch('/api/me');
+      currentUser = await res.json();
+    } catch (_) { currentUser = null; }
+    renderAuth();
+  }
+
+  function renderAuth() {
+    const area = document.getElementById('authArea');
+    if (currentUser) {
+      area.innerHTML = `
+        <div class="user-pill">
+          <img src="${esc(currentUser.avatarUrl)}" alt="${esc(currentUser.login)}" />
+          <span class="uname">${esc(currentUser.name || currentUser.login)}</span>
+          <button class="logout-btn" onclick="location.href='/auth/logout'">Logout</button>
+        </div>`;
+      loadRepos();
+    } else {
+      area.innerHTML = `
+        <a class="gh-login-btn" href="/auth/github">
+          ${GH_ICON} Login with GitHub
+        </a>`;
+      document.getElementById('repoPicker').style.display = 'none';
+    }
+  }
+
+  // ── Repo picker ───────────────────────────────────────────────────────────────
+  async function loadRepos() {
+    document.getElementById('repoPicker').style.display = 'block';
+    document.getElementById('repoList').innerHTML = '<div id="repoLoading">Loading repos…</div>';
+
+    try {
+      const res = await fetch('/api/repos');
+      if (res.status === 401) { currentUser = null; renderAuth(); return; }
+      allRepos = await res.json();
+      renderRepos(allRepos);
+    } catch (_) {
+      document.getElementById('repoList').innerHTML =
+        '<div id="repoLoading">Failed to load repos.</div>';
+    }
+  }
+
+  function renderRepos(repos) {
+    const list = document.getElementById('repoList');
+    if (!repos.length) {
+      list.innerHTML = '<div id="repoLoading">No repos found.</div>';
+      return;
+    }
+    list.innerHTML = repos.map(r => `
+      <div class="repo-item" onclick="selectRepo(${JSON.stringify(r.fullName)}, ${JSON.stringify(r.cloneUrl)}, ${JSON.stringify(r.defaultBranch)})">
+        <div class="rname">
+          ${esc(r.fullName)}
+          ${r.private ? '<span class="rprivate">private</span>' : ''}
+        </div>
+        ${r.description ? `<div class="rdesc">${esc(r.description)}</div>` : ''}
+      </div>`).join('');
+  }
+
+  document.getElementById('repoSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    renderRepos(allRepos.filter(r =>
+      r.fullName.toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q)
+    ));
+  });
+
+  function selectRepo(fullName, cloneUrl, defaultBranch) {
+    document.getElementById('repo').value   = cloneUrl;
+    document.getElementById('branch').value = defaultBranch || 'main';
+    // Pre-fill app name from repo name (slug)
+    const slug = fullName.split('/')[1].toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    document.getElementById('appName').value = slug;
+    // Highlight selected
+    document.querySelectorAll('.repo-item').forEach(el => el.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+    showToast(`Selected: ${fullName}`, 'ok');
+  }
+
+  // ── Deployments ───────────────────────────────────────────────────────────────
+  async function loadDeployments() {
+    try {
+      const data = await (await fetch('/deployments')).json();
+      const body = document.getElementById('deploymentsBody');
+      document.getElementById('deployCount').textContent = data.length;
+      if (!data.length) {
+        body.innerHTML = '<tr><td colspan="5" class="empty">No deployments yet.</td></tr>';
+        return;
+      }
+      body.innerHTML = data.map(d => `
+        <tr>
+          <td class="mono">${esc(d.appName || '—')}</td>
+          <td>${d.domain ? `<a class="domain" href="https://${esc(d.domain)}" target="_blank">${esc(d.domain)}</a>` : '—'}</td>
+          <td>${badge(d.status)}</td>
+          <td style="color:var(--muted);font-size:12px">${relTime(d.updatedAt)}</td>
+          <td>${d.status === 'live'
+            ? `<button class="btn btn-danger" onclick="destroyApp('${esc(d.appName)}','${esc(d.domain)}')">Destroy</button>`
+            : ''}</td>
+        </tr>`).join('');
+    } catch (_) {}
+  }
+
+  // ── Containers ────────────────────────────────────────────────────────────────
+  async function loadContainers() {
+    try {
+      const data = await (await fetch('/containers')).json();
+      const body = document.getElementById('containersBody');
+      document.getElementById('containerCount').textContent = data.length;
+      if (!data.length) {
+        body.innerHTML = '<tr><td colspan="4" class="empty">No containers.</td></tr>';
+        return;
+      }
+      body.innerHTML = data.map(c => {
+        const name  = (c.Names||[]).map(n=>n.replace(/^\//,'')).join(', ');
+        const state = (c.State||'unknown').toLowerCase();
+        const ports = (c.Ports||[]).filter(p=>p.PublicPort).map(p=>p.PublicPort).join(', ')||'—';
+        return `<tr>
+          <td class="mono">${esc(name)}</td>
+          <td class="mono">${esc(c.Image||'—')}</td>
+          <td>${badge(state)}</td>
+          <td class="mono">${esc(ports)}</td>
+        </tr>`;
+      }).join('');
+    } catch (_) {}
+  }
+
+  // ── Destroy ───────────────────────────────────────────────────────────────────
+  async function destroyApp(appName, domain) {
+    if (!confirm(`Destroy "${appName}"? This removes the container, database, and proxy host.`)) return;
+    try {
+      const res = await fetch(`/deploy/${appName}?domain=${encodeURIComponent(domain)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast(`${appName} destroyed.`, 'ok');
+      loadDeployments(); loadContainers();
+    } catch (e) { showToast('Destroy failed: ' + e.message, 'err'); }
+  }
+
+  // ── Deploy form ───────────────────────────────────────────────────────────────
+  document.getElementById('deployForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('deployBtn');
+    btn.disabled = true;
+    btn.textContent = 'Deploying…';
+    const body = {
+      repo:    document.getElementById('repo').value.trim(),
+      domain:  document.getElementById('domain').value.trim(),
+      branch:  document.getElementById('branch').value.trim() || 'main',
+      ssl:     document.getElementById('ssl').checked,
+      email:   document.getElementById('email').value.trim() || undefined,
+      appName: document.getElementById('appName').value.trim() || undefined,
+    };
+    try {
+      const res  = await fetch('/deploy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast(`Deployment started: ${data.appName}`, 'ok');
+      e.target.reset();
+      document.getElementById('branch').value = 'main';
+      document.getElementById('ssl').checked  = true;
+    } catch (err) {
+      showToast('Deploy failed: ' + err.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '&#9654;&nbsp; Deploy';
+    }
+  });
+
+  // ── Poll ──────────────────────────────────────────────────────────────────────
+  loadAuth();
+  loadDeployments();
+  loadContainers();
+  setInterval(() => { loadDeployments(); loadContainers(); }, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+.sessions/
+apps/
+.env
+cookies.txt
+.claude/settings.local.json
+push_to_github.sh

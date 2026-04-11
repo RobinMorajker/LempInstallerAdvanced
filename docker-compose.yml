@@ -1,0 +1,134 @@
+version: "3.8"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LEMP Stack + Deploy Engine
+# ──────────────────────────────────────────────────────────────────────────────
+# Services:
+#   nginx        - Reverse proxy / web server for the default vhost
+#   php          - PHP-FPM (custom image with Redis, GD, MySQLi, OPcache)
+#   db           - MariaDB (ARM-stable alternative to MySQL)
+#   redis        - Redis cache / session store
+#   npm          - Nginx Proxy Manager (domain routing + SSL GUI)
+#   deploy       - The one-click Deploy Engine API (Node.js)
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Nginx (default vhost) ──────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: lemp_nginx
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./www:/var/www/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - php
+    networks:
+      - lemp_net
+
+  # ── PHP-FPM (custom production image) ─────────────────────────────────────
+  php:
+    build:
+      context: ./php
+      dockerfile: Dockerfile
+    image: lemp-php-custom
+    container_name: lemp_php
+    restart: always
+    volumes:
+      - ./www:/var/www/html:rw
+      - ./php/php.ini:/usr/local/etc/php/php.ini:ro
+    networks:
+      - lemp_net
+
+  # ── MariaDB ────────────────────────────────────────────────────────────────
+  db:
+    image: mariadb:10.11
+    container_name: lemp_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-mydb}
+      MYSQL_USER: ${DB_USER:-user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - lemp_net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: lemp_redis
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - lemp_net
+
+  # ── Nginx Proxy Manager ────────────────────────────────────────────────────
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: lemp_npm
+    restart: always
+    ports:
+      - "80:80"      # HTTP (proxied sites)
+      - "81:81"      # NPM admin UI
+      - "443:443"    # HTTPS (proxied sites)
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - lemp_net
+
+  # ── Deploy Engine ──────────────────────────────────────────────────────────
+  deploy:
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+    container_name: lemp_deploy
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount Docker socket so the engine can manage sibling containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # App files are written here; the path must match APPS_DIR in .env
+      - /var/www/apps:/var/www/apps
+    environment:
+      - NODE_ENV=production
+      - APPS_DIR=/var/www/apps
+      - DOCKER_NETWORK=lemp_net
+      - PHP_IMAGE=lemp-php-custom
+      - DB_HOST=lemp_db
+      - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootpassword}
+      - DB_APP_PASSWORD=${DB_APP_PASSWORD:-apppassword}
+      - NPM_URL=http://lemp_npm:81/api
+      - NPM_EMAIL=${NPM_EMAIL:-admin@example.com}
+      - NPM_PASSWORD=${NPM_PASSWORD:-changeme}
+      - PORT=3000
+    depends_on:
+      - db
+      - redis
+      - npm
+    networks:
+      - lemp_net
+
+volumes:
+  db_data:
+  redis_data:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  lemp_net:
+    name: lemp_net
+    driver: bridge

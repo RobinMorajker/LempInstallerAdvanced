@@ -1,0 +1,41 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Deploy Engine (dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Deploy Engine (prod)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3000
+    },
+    {
+      "name": "LEMP Stack (docker compose)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "--build"],
+      "port": 8080
+    },
+    {
+      "name": "Nginx (web server) — port 8080",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "nginx", "php"],
+      "port": 8080
+    },
+    {
+      "name": "Nginx Proxy Manager (admin UI) — port 81",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "npm"],
+      "port": 81
+    },
+    {
+      "name": "Deploy Engine container — port 3000",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "deploy", "db", "redis", "npm"],
+      "port": 3000
+    }
+  ]
+}

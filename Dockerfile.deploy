@@ -1,0 +1,24 @@
+FROM node:20-alpine
+
+# Install git (needed by simple-git to clone repos)
+RUN apk add --no-cache git openssh-client
+
+WORKDIR /app
+
+# Install dependencies first (layer-cached separately from source)
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev
+
+# Copy source
+COPY src/ ./src/
+
+# Non-root user
+RUN addgroup -S deploy && adduser -S deploy -G deploy
+USER deploy
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["node", "src/server.js"]

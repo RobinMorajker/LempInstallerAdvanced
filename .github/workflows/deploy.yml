@@ -1,0 +1,71 @@
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Configure SSH ─────────────────────────────────────────────────
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PI_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.PI_HOST }}" >> ~/.ssh/known_hosts
+
+      # ── 3. Deploy ────────────────────────────────────────────────────────
+      - name: Deploy to Pi
+        env:
+          PI_USER: ${{ secrets.PI_USER }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+        run: |
+          ssh "$PI_USER@$PI_HOST" bash -s << 'ENDSSH'
+            set -e
+
+            echo "==> Navigating to project"
+            cd "$PROJECT_DIR"
+
+            echo "==> Pulling latest code"
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "==> Rebuilding PHP image"
+            docker compose build --no-cache php
+
+            echo "==> Rebuilding deploy engine image"
+            docker compose build --no-cache deploy
+
+            echo "==> Restarting updated services (zero-downtime for others)"
+            docker compose up -d --remove-orphans
+
+            echo "==> Waiting for health checks"
+            sleep 10
+            docker compose ps
+
+            echo "==> Pruning unused images"
+            docker image prune -f
+
+            echo "==> Deploy complete"
+          ENDSSH
+
+      # ── 4. Smoke-test health endpoint ─────────────────────────────────────
+      - name: Smoke test
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "http://${{ secrets.PI_HOST }}:3000/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with HTTP $STATUS"
+            exit 1
+          fi
+          echo "Health check passed (HTTP $STATUS)"
