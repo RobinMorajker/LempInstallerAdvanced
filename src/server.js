@@ -2,10 +2,13 @@ const path = require("path");
 const express = require("express");
 const session = require("express-session");
 const SQLiteStore = require("connect-sqlite3")(session);
-const { deploy, destroy, getStatus, listDeployments } = require("./deployService");
+const localDeploy   = require("./deployService");
+const remoteDeploy  = require("./remoteDeployService");
+const { getStatus, listDeployments } = require("./deployStore");
 const { listAppContainers, inspectContainer } = require("./dockerService");
-const authRouter = require("./routes/auth");
-const config = require("./config");
+const machines      = require("./machineService");
+const authRouter    = require("./routes/auth");
+const config        = require("./config");
 
 const app = express();
 
@@ -64,11 +67,12 @@ function isValidAppName(name) {
  *   appName  {string}  optional  - Custom name; auto-generated if omitted
  *   ssl      {boolean} optional  - Default true
  *   email    {string}  optional  - Let's Encrypt contact email
- *   branch   {string}  optional  - Default "main"
- *   webRoot  {string}  optional  - Subdirectory used as document root (e.g. "public")
+ *   branch    {string}  optional  - Default "main"
+ *   webRoot   {string}  optional  - Subdirectory used as document root (e.g. "public")
+ *   machineId {string}  optional  - ID of a registered remote machine; omit for local deploy
  */
 app.post("/deploy", requireAuth, async (req, res) => {
-  const { repo, domain, appName, ssl, email, branch, webRoot } = req.body;
+  const { repo, domain, appName, ssl, email, branch, webRoot, machineId } = req.body;
 
   if (!repo || !isValidGitUrl(repo)) {
     return res.status(400).json({ error: "Invalid or missing repo URL (must end in .git)" });
@@ -81,7 +85,14 @@ app.post("/deploy", requireAuth, async (req, res) => {
   }
 
   try {
-    const result = await deploy({ repo, domain, appName, ssl, email, branch, webRoot });
+    let result;
+    if (machineId) {
+      const machine = machines.getMachine(machineId);
+      if (!machine) return res.status(404).json({ error: "Machine not found" });
+      result = await remoteDeploy.deploy({ machine, machineId, repo, domain, appName, ssl, email, branch, webRoot });
+    } else {
+      result = await localDeploy.deploy({ repo, domain, appName, ssl, email, branch, webRoot });
+    }
     res.status(202).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -110,11 +121,13 @@ app.get("/deployments", requireAuth, (_req, res) => {
  * DELETE /deploy/:appName
  * Destroy an app completely (container + DB + proxy host).
  *
- * Query param: domain  (required to remove the proxy host)
+ * Query params:
+ *   domain    {string} required
+ *   machineId {string} optional — remote machine; omit for local
  */
 app.delete("/deploy/:appName", requireAuth, async (req, res) => {
   const { appName } = req.params;
-  const { domain } = req.query;
+  const { domain, machineId } = req.query;
 
   if (!isValidAppName(appName)) {
     return res.status(400).json({ error: "Invalid appName" });
@@ -124,10 +137,66 @@ app.delete("/deploy/:appName", requireAuth, async (req, res) => {
   }
 
   try {
-    await destroy(appName, domain);
+    if (machineId) {
+      const machine = machines.getMachine(machineId);
+      if (!machine) return res.status(404).json({ error: "Machine not found" });
+      await remoteDeploy.destroy(machine, appName, domain);
+    } else {
+      await localDeploy.destroy(appName, domain);
+    }
     res.json({ success: true, appName, domain });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Machine registry ──────────────────────────────────────────────────────────
+
+/**
+ * GET /machines
+ * List registered remote machines (secrets stripped).
+ */
+app.get("/machines", requireAuth, (_req, res) => {
+  res.json(machines.listMachines());
+});
+
+/**
+ * POST /machines
+ * Register a new remote machine.
+ *
+ * Body: { name, host, port?, user?, privateKey, appsDir?, dockerNetwork?,
+ *         phpImage?, dbRootPassword?, dbAppPassword?, npmEmail?, npmPassword? }
+ */
+app.post("/machines", requireAuth, (req, res) => {
+  try {
+    const m = machines.addMachine(req.body);
+    res.status(201).json(m);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /machines/:id
+ * Remove a registered machine.
+ */
+app.delete("/machines/:id", requireAuth, (req, res) => {
+  machines.removeMachine(req.params.id);
+  res.json({ success: true });
+});
+
+/**
+ * POST /machines/:id/test
+ * Test SSH connectivity to a machine.
+ */
+app.post("/machines/:id/test", requireAuth, async (req, res) => {
+  const machine = machines.getMachine(req.params.id);
+  if (!machine) return res.status(404).json({ error: "Machine not found" });
+  try {
+    const output = await remoteDeploy.testConnection(machine);
+    res.json({ success: true, output });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

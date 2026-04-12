@@ -5,6 +5,7 @@ node_modules/
 *.db-wal
 apps/
 .env
+.machines.json
 cookies.txt
 .claude/settings.local.json
 push_to_github.sh

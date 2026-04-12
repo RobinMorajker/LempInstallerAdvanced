@@ -149,10 +149,10 @@
     .repo-item .rprivate { font-size: 10px; color: var(--warn); margin-left: 6px; }
     #repoLoading { padding: 16px; text-align: center; color: var(--muted); font-size: 12px; }
 
-    /* ── Form ── */
+    /* ── Form inputs ── */
     .field { margin-bottom: 16px; }
     label  { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
-    input[type="text"], input[type="email"], input[type="url"] {
+    input[type="text"], input[type="email"], input[type="url"], input[type="number"], input[type="password"] {
       width: 100%;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -164,6 +164,38 @@
       transition: border-color .15s;
     }
     input:focus { border-color: var(--accent); }
+    textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 12px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      outline: none;
+      resize: vertical;
+      min-height: 90px;
+      transition: border-color .15s;
+    }
+    textarea:focus { border-color: var(--accent); }
+    select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b949e' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      transition: border-color .15s;
+    }
+    select:focus { border-color: var(--accent); }
     .check-row {
       display: flex; align-items: center; gap: 8px;
       font-size: 13px; color: var(--text);
@@ -184,6 +216,30 @@
     .btn-primary:hover:not(:disabled) { opacity: .88; }
     .btn-danger  { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 4px 10px; font-size: 12px; }
     .btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+    .btn-secondary {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); padding: 4px 12px; font-size: 12px;
+    }
+    .btn-secondary:hover { border-color: var(--info); color: var(--info); }
+    .btn-test {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); padding: 4px 10px; font-size: 12px;
+    }
+    .btn-test:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Collapse ── */
+    .collapsible { display: none; }
+    .collapsible.open { display: block; }
+
+    /* ── Advanced toggle ── */
+    .adv-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--muted); cursor: pointer;
+      background: none; border: none; padding: 4px 0; margin-bottom: 12px;
+    }
+    .adv-toggle:hover { color: var(--info); }
+    .adv-toggle .arr { transition: transform .2s; display: inline-block; }
+    .adv-toggle.open .arr { transform: rotate(90deg); }
 
     /* ── Right column ── */
     .right-col { display: flex; flex-direction: column; gap: 24px; }
@@ -210,6 +266,8 @@
     .badge-failed              { background: #2d1f1f; color: var(--danger); }
     .badge-running             { background: var(--accent-dim); color: var(--accent); }
     .badge-exited              { background: #2a2a2a; color: var(--muted); }
+    .badge-local               { background: #1a2230; color: var(--info); }
+    .badge-remote              { background: #2a1a30; color: #bc8cff; }
 
     /* ── Toast ── */
     #toast {
@@ -225,13 +283,29 @@
     #toast.show { opacity: 1; transform: translateY(0); }
     #toast.ok   { border-left: 3px solid var(--accent); }
     #toast.err  { border-left: 3px solid var(--danger); }
+    #toast.info { border-left: 3px solid var(--info); }
 
     a.domain { color: var(--info); text-decoration: none; }
     a.domain:hover { text-decoration: underline; }
     .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; color: var(--muted); }
 
+    /* ── Machine form panel ── */
+    .machine-form-panel {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+      background: #0d1117;
+    }
+    .form-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .adv-fields { margin-top: 4px; }
+    .adv-fields .form-row-2 { margin-bottom: 12px; }
+
     @media (max-width: 768px) {
       main { grid-template-columns: 1fr; }
+      .form-row-2 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -290,6 +364,12 @@
             <label for="ssl" style="margin:0;cursor:pointer">Enable SSL (Let's Encrypt)</label>
           </div>
         </div>
+        <div class="field">
+          <label>Deploy Target</label>
+          <select id="targetMachine">
+            <option value="">&#128187; Local (this machine)</option>
+          </select>
+        </div>
         <button type="submit" class="btn btn-primary" id="deployBtn">
           &#9654;&nbsp; Deploy
         </button>
@@ -307,9 +387,103 @@
       </div>
       <div class="card-body" style="padding:0">
         <table>
-          <thead><tr><th>App</th><th>Domain</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+          <thead><tr><th>App</th><th>Domain</th><th>Target</th><th>Status</th><th>Updated</th><th></th></tr></thead>
           <tbody id="deploymentsBody">
-            <tr><td colspan="5" class="empty">No deployments yet.</td></tr>
+            <tr><td colspan="6" class="empty">No deployments yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Machines ── -->
+    <div class="card">
+      <div class="card-header">
+        &#128187; Machines
+        <span id="machineCount" style="margin-left:auto;background:var(--border);border-radius:12px;padding:2px 8px;font-size:11px;font-weight:400">0</span>
+        <button class="btn btn-secondary" id="addMachineToggle" style="margin-left:8px" onclick="toggleAddMachineForm()">+ Add</button>
+      </div>
+
+      <!-- Add machine form (collapsed by default) -->
+      <div id="addMachinePanel" class="machine-form-panel collapsible">
+        <form id="machineForm" onsubmit="submitAddMachine(event)">
+          <div class="form-row-2" style="margin-bottom:12px">
+            <div class="field" style="margin:0">
+              <label>Name <span style="color:var(--danger)">*</span></label>
+              <input type="text" id="mName" placeholder="My Pi" required />
+            </div>
+            <div class="field" style="margin:0">
+              <label>Host / IP <span style="color:var(--danger)">*</span></label>
+              <input type="text" id="mHost" placeholder="192.168.0.10" required />
+            </div>
+          </div>
+          <div class="form-row-2" style="margin-bottom:12px">
+            <div class="field" style="margin:0">
+              <label>SSH User</label>
+              <input type="text" id="mUser" value="pi" />
+            </div>
+            <div class="field" style="margin:0">
+              <label>SSH Port</label>
+              <input type="number" id="mPort" value="22" min="1" max="65535" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Private Key <span style="color:var(--danger)">*</span> <span style="color:var(--muted);font-weight:400">(PEM / OpenSSH)</span></label>
+            <textarea id="mPrivateKey" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…&#10;-----END OPENSSH PRIVATE KEY-----" required></textarea>
+          </div>
+
+          <!-- Advanced settings -->
+          <button type="button" class="adv-toggle" id="advToggle" onclick="toggleAdvanced()">
+            <span class="arr">&#9658;</span> Advanced settings
+          </button>
+          <div id="advFields" class="adv-fields collapsible">
+            <div class="form-row-2" style="margin-bottom:12px">
+              <div class="field" style="margin:0">
+                <label>Apps Dir</label>
+                <input type="text" id="mAppsDir" value="/var/www/apps" />
+              </div>
+              <div class="field" style="margin:0">
+                <label>Docker Network</label>
+                <input type="text" id="mDockerNetwork" value="lemp_net" />
+              </div>
+            </div>
+            <div class="form-row-2" style="margin-bottom:12px">
+              <div class="field" style="margin:0">
+                <label>PHP Image</label>
+                <input type="text" id="mPhpImage" value="lemp-php-custom" />
+              </div>
+              <div class="field" style="margin:0">
+                <label>DB Root Password</label>
+                <input type="password" id="mDbRootPassword" placeholder="changeme_root" />
+              </div>
+            </div>
+            <div class="form-row-2" style="margin-bottom:12px">
+              <div class="field" style="margin:0">
+                <label>DB App Password</label>
+                <input type="password" id="mDbAppPassword" placeholder="changeme_app" />
+              </div>
+              <div class="field" style="margin:0">
+                <label>NPM Email</label>
+                <input type="email" id="mNpmEmail" placeholder="admin@example.com" />
+              </div>
+            </div>
+            <div class="field">
+              <label>NPM Password</label>
+              <input type="password" id="mNpmPassword" placeholder="changeme_npm" />
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button type="submit" class="btn btn-primary" id="addMachineBtn" style="flex:1">Add Machine</button>
+            <button type="button" class="btn btn-secondary" onclick="toggleAddMachineForm()">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead><tr><th>Name</th><th>Host</th><th>Key</th><th></th></tr></thead>
+          <tbody id="machinesBody">
+            <tr><td colspan="4" class="empty">No machines registered.</td></tr>
           </tbody>
         </table>
       </div>
@@ -407,7 +581,6 @@
   async function loadRepos() {
     document.getElementById('repoPicker').style.display = 'block';
     document.getElementById('repoList').innerHTML = '<div id="repoLoading">Loading repos…</div>';
-
     try {
       const res = await fetch('/api/repos');
       if (res.status === 401) { currentUser = null; renderAuth(); return; }
@@ -446,37 +619,171 @@
   function selectRepo(fullName, cloneUrl, defaultBranch) {
     document.getElementById('repo').value   = cloneUrl;
     document.getElementById('branch').value = defaultBranch || 'main';
-    // Pre-fill app name from repo name (slug)
     const slug = fullName.split('/')[1].toLowerCase().replace(/[^a-z0-9-]/g, '-');
     document.getElementById('appName').value = slug;
-    // Highlight selected
     document.querySelectorAll('.repo-item').forEach(el => el.classList.remove('selected'));
     event.currentTarget.classList.add('selected');
     showToast(`Selected: ${fullName}`, 'ok');
+  }
+
+  // ── Machines ──────────────────────────────────────────────────────────────────
+  let allMachines = [];
+
+  async function loadMachines() {
+    try {
+      const res = await fetch('/machines');
+      if (res.status === 401) return;
+      allMachines = await res.json();
+      renderMachines();
+      updateTargetDropdown();
+    } catch (_) {}
+  }
+
+  function renderMachines() {
+    const body = document.getElementById('machinesBody');
+    document.getElementById('machineCount').textContent = allMachines.length;
+    if (!allMachines.length) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">No machines registered.</td></tr>';
+      return;
+    }
+    body.innerHTML = allMachines.map(m => `
+      <tr>
+        <td style="font-weight:500">${esc(m.name)}</td>
+        <td class="mono">${esc(m.host)}:${m.port || 22}</td>
+        <td>${m.hasKey
+          ? '<span style="color:var(--accent);font-size:11px">&#10003; Key set</span>'
+          : '<span style="color:var(--danger);font-size:11px">No key</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-test" onclick="testMachine('${esc(m.id)}', '${esc(m.name)}')" style="margin-right:6px">Test</button>
+          <button class="btn btn-danger" onclick="removeMachine('${esc(m.id)}', '${esc(m.name)}')">Remove</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function updateTargetDropdown() {
+    const sel = document.getElementById('targetMachine');
+    const current = sel.value;
+    // Keep first option (local), replace rest
+    while (sel.options.length > 1) sel.remove(1);
+    allMachines.forEach(m => {
+      const opt = new Option(`&#128187; ${m.name} (${m.host})`, m.id);
+      sel.add(opt);
+    });
+    // Restore selection if still valid
+    if (current && allMachines.find(m => m.id === current)) {
+      sel.value = current;
+    }
+  }
+
+  async function testMachine(id, name) {
+    showToast(`Testing SSH to ${name}…`, 'info');
+    try {
+      const res  = await fetch(`/machines/${id}/test`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`${name}: ${data.output.split('\n')[0]}`, 'ok');
+      } else {
+        showToast(`${name}: ${data.error}`, 'err');
+      }
+    } catch (e) { showToast('Test failed: ' + e.message, 'err'); }
+  }
+
+  async function removeMachine(id, name) {
+    if (!confirm(`Remove machine "${name}"? Deployed apps on this machine are NOT affected.`)) return;
+    try {
+      const res = await fetch(`/machines/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error);
+      showToast(`Machine "${name}" removed.`, 'ok');
+      loadMachines();
+    } catch (e) { showToast('Remove failed: ' + e.message, 'err'); }
+  }
+
+  function toggleAddMachineForm() {
+    const panel  = document.getElementById('addMachinePanel');
+    const toggle = document.getElementById('addMachineToggle');
+    const open   = panel.classList.toggle('open');
+    toggle.textContent = open ? '✕ Close' : '+ Add';
+  }
+
+  function toggleAdvanced() {
+    const btn    = document.getElementById('advToggle');
+    const fields = document.getElementById('advFields');
+    const open   = fields.classList.toggle('open');
+    btn.classList.toggle('open', open);
+  }
+
+  async function submitAddMachine(e) {
+    e.preventDefault();
+    const btn = document.getElementById('addMachineBtn');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+
+    const body = {
+      name:            document.getElementById('mName').value.trim(),
+      host:            document.getElementById('mHost').value.trim(),
+      port:            parseInt(document.getElementById('mPort').value) || 22,
+      user:            document.getElementById('mUser').value.trim() || 'pi',
+      privateKey:      document.getElementById('mPrivateKey').value,
+      appsDir:         document.getElementById('mAppsDir').value.trim() || '/var/www/apps',
+      dockerNetwork:   document.getElementById('mDockerNetwork').value.trim() || 'lemp_net',
+      phpImage:        document.getElementById('mPhpImage').value.trim() || 'lemp-php-custom',
+      dbRootPassword:  document.getElementById('mDbRootPassword').value || 'changeme_root',
+      dbAppPassword:   document.getElementById('mDbAppPassword').value || 'changeme_app',
+      npmEmail:        document.getElementById('mNpmEmail').value.trim() || 'admin@example.com',
+      npmPassword:     document.getElementById('mNpmPassword').value || 'changeme_npm',
+    };
+
+    try {
+      const res  = await fetch('/machines', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast(`Machine "${data.name}" added.`, 'ok');
+      document.getElementById('machineForm').reset();
+      document.getElementById('mUser').value = 'pi';
+      document.getElementById('mPort').value = '22';
+      document.getElementById('mAppsDir').value = '/var/www/apps';
+      document.getElementById('mDockerNetwork').value = 'lemp_net';
+      document.getElementById('mPhpImage').value = 'lemp-php-custom';
+      toggleAddMachineForm();
+      loadMachines();
+    } catch (err) {
+      showToast('Add machine failed: ' + err.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add Machine';
+    }
   }
 
   // ── Deployments ───────────────────────────────────────────────────────────────
   async function loadDeployments() {
     try {
       const resp = await fetch('/deployments');
-      if (resp.status === 401) return; // not logged in — silently skip
+      if (resp.status === 401) return;
       const data = await resp.json();
       const body = document.getElementById('deploymentsBody');
       document.getElementById('deployCount').textContent = data.length;
       if (!data.length) {
-        body.innerHTML = '<tr><td colspan="5" class="empty">No deployments yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="empty">No deployments yet.</td></tr>';
         return;
       }
-      body.innerHTML = data.map(d => `
+      body.innerHTML = data.map(d => {
+        const isRemote  = !!d.machineId;
+        const targetBadge = isRemote
+          ? `<span class="badge badge-remote" title="${esc(d.machineHost || '')}">${esc(d.machineName || d.machineHost || 'remote')}</span>`
+          : `<span class="badge badge-local">local</span>`;
+        const destroyBtn = d.status === 'live'
+          ? `<button class="btn btn-danger" onclick="destroyApp('${esc(d.appName)}','${esc(d.domain)}'${d.machineId ? `,'${esc(d.machineId)}'` : ''})">Destroy</button>`
+          : '';
+        return `
         <tr>
           <td class="mono">${esc(d.appName || '—')}</td>
           <td>${d.domain ? `<a class="domain" href="https://${esc(d.domain)}" target="_blank">${esc(d.domain)}</a>` : '—'}</td>
+          <td>${targetBadge}</td>
           <td>${badge(d.status)}</td>
           <td style="color:var(--muted);font-size:12px">${relTime(d.updatedAt)}</td>
-          <td>${d.status === 'live'
-            ? `<button class="btn btn-danger" onclick="destroyApp('${esc(d.appName)}','${esc(d.domain)}')">Destroy</button>`
-            : ''}</td>
-        </tr>`).join('');
+          <td>${destroyBtn}</td>
+        </tr>`;
+      }).join('');
     } catch (_) {}
   }
 
@@ -484,7 +791,7 @@
   async function loadContainers() {
     try {
       const resp = await fetch('/containers');
-      if (resp.status === 401) return; // not logged in — silently skip
+      if (resp.status === 401) return;
       const data = await resp.json();
       const body = document.getElementById('containersBody');
       document.getElementById('containerCount').textContent = data.length;
@@ -507,10 +814,12 @@
   }
 
   // ── Destroy ───────────────────────────────────────────────────────────────────
-  async function destroyApp(appName, domain) {
+  async function destroyApp(appName, domain, machineId) {
     if (!confirm(`Destroy "${appName}"? This removes the container, database, and proxy host.`)) return;
     try {
-      const res = await fetch(`/deploy/${appName}?domain=${encodeURIComponent(domain)}`, { method: 'DELETE' });
+      let url = `/deploy/${appName}?domain=${encodeURIComponent(domain)}`;
+      if (machineId) url += `&machineId=${encodeURIComponent(machineId)}`;
+      const res  = await fetch(url, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`${appName} destroyed.`, 'ok');
@@ -524,25 +833,29 @@
     const btn = document.getElementById('deployBtn');
     btn.disabled = true;
     btn.textContent = 'Deploying…';
-    const webRootVal = document.getElementById('webRoot').value.trim();
+    const webRootVal  = document.getElementById('webRoot').value.trim();
+    const machineId   = document.getElementById('targetMachine').value || undefined;
     const body = {
-      repo:    document.getElementById('repo').value.trim(),
-      domain:  document.getElementById('domain').value.trim(),
-      branch:  document.getElementById('branch').value.trim() || 'main',
-      ssl:     document.getElementById('ssl').checked,
-      email:   document.getElementById('email').value.trim() || undefined,
-      appName: document.getElementById('appName').value.trim() || undefined,
-      webRoot: webRootVal || undefined,
+      repo:      document.getElementById('repo').value.trim(),
+      domain:    document.getElementById('domain').value.trim(),
+      branch:    document.getElementById('branch').value.trim() || 'main',
+      ssl:       document.getElementById('ssl').checked,
+      email:     document.getElementById('email').value.trim() || undefined,
+      appName:   document.getElementById('appName').value.trim() || undefined,
+      webRoot:   webRootVal || undefined,
+      machineId,
     };
     try {
       const res  = await fetch('/deploy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
       if (res.status === 401) { window.location.href = '/auth/github'; return; }
       if (!res.ok) throw new Error(data.error);
-      showToast(`Deployment started: ${data.appName}`, 'ok');
+      const target = machineId ? (allMachines.find(m => m.id === machineId)?.name || 'remote') : 'local';
+      showToast(`Deployment started: ${data.appName} → ${target}`, 'ok');
       e.target.reset();
       document.getElementById('branch').value = 'main';
       document.getElementById('ssl').checked  = true;
+      updateTargetDropdown();
     } catch (err) {
       showToast('Deploy failed: ' + err.message, 'err');
     } finally {
@@ -553,6 +866,7 @@
 
   // ── Poll ──────────────────────────────────────────────────────────────────────
   loadAuth();
+  loadMachines();
   loadDeployments();
   loadContainers();
   setInterval(() => { loadDeployments(); loadContainers(); }, 10000);

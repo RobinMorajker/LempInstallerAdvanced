@@ -8,10 +8,7 @@ const docker = require("./dockerService");
 const { createNginxSidecar, removeAppContainers } = docker;
 const db = require("./dbService");
 const npm = require("./npmService");
-
-// In-memory deployment status store.
-// In production you can swap this for Redis or a database table.
-const deployments = new Map();
+const store = require("./deployStore");
 
 /**
  * Deploy a new app or redeploy an existing one.
@@ -32,13 +29,13 @@ async function deploy({ repo, domain, appName, ssl = true, email, branch = "main
   const deployId = uuid();
   const appPath = path.join(config.appsDir, name);
 
-  _setStatus(deployId, { status: "pending", appName: name, domain, repo });
+  store.setStatus(deployId, { status: "pending", appName: name, domain, repo });
 
   // Run asynchronously so the HTTP response returns immediately
   _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch, webRoot }).catch(
     (err) => {
       console.error(`[deploy] ${name} failed:`, err.message);
-      _setStatus(deployId, { status: "failed", error: err.message });
+      store.setStatus(deployId, { status: "failed", error: err.message });
     }
   );
 
@@ -50,7 +47,7 @@ async function deploy({ repo, domain, appName, ssl = true, email, branch = "main
  */
 async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, branch, webRoot }) {
   // ── Step 1: Clone / pull ──────────────────────────────────────────────────
-  _setStatus(deployId, { status: "cloning" });
+  store.setStatus(deployId, { status: "cloning" });
 
   // Ensure the parent apps directory exists (not the app dir itself — git creates that)
   fs.mkdirSync(path.dirname(appPath), { recursive: true });
@@ -84,11 +81,11 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
   }
 
   // ── Step 2: Provision database ───────────────────────────────────────────
-  _setStatus(deployId, { status: "provisioning_db" });
+  store.setStatus(deployId, { status: "provisioning_db" });
   const { dbName, dbUser, dbPassword } = await db.createDatabase(name);
 
   // ── Step 3: (Re)create containers (PHP-FPM + Nginx sidecar) ─────────────
-  _setStatus(deployId, { status: "building_container" });
+  store.setStatus(deployId, { status: "building_container" });
   await removeAppContainers(name);    // removes both nginx_<name> and <name>
   await docker.createContainer({
     name,
@@ -109,11 +106,11 @@ async function _runDeploy({ deployId, name, appPath, repo, domain, ssl, email, b
 
   // ── Step 4: Configure domain + SSL ───────────────────────────────────────
   // NPM forwards to the Nginx sidecar (nginx_<name>) on port 80
-  _setStatus(deployId, { status: "configuring_proxy" });
+  store.setStatus(deployId, { status: "configuring_proxy" });
   await npm.createProxyHost({ domain, appName: `nginx_${name}`, ssl, email });
 
   // ── Step 5: Done ─────────────────────────────────────────────────────────
-  _setStatus(deployId, { status: "live" });
+  store.setStatus(deployId, { status: "live" });
   console.log(`[deploy] ${name} → https://${domain} (live)`);
 }
 
@@ -134,23 +131,4 @@ async function destroy(appName, domain) {
   }
 }
 
-/**
- * Return the status object for a given deployId.
- */
-function getStatus(deployId) {
-  return deployments.get(deployId) || null;
-}
-
-/**
- * Return all tracked deployments.
- */
-function listDeployments() {
-  return Array.from(deployments.values());
-}
-
-function _setStatus(deployId, patch) {
-  const current = deployments.get(deployId) || {};
-  deployments.set(deployId, { ...current, deployId, ...patch, updatedAt: new Date().toISOString() });
-}
-
-module.exports = { deploy, destroy, getStatus, listDeployments };
+module.exports = { deploy, destroy };
