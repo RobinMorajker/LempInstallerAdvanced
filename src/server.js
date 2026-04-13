@@ -4,6 +4,7 @@ const session = require("express-session");
 const SQLiteStore = require("connect-sqlite3")(session);
 const localDeploy   = require("./deployService");
 const remoteDeploy  = require("./remoteDeployService");
+const { getPortMap } = remoteDeploy;
 const { getStatus, listDeployments, removeByApp } = require("./deployStore");
 const { listAppContainers, inspectContainer } = require("./dockerService");
 const machines      = require("./machineService");
@@ -219,6 +220,20 @@ app.get("/machines/:id/bootstrap-status", requireAuth, (req, res) => {
   const status = remoteDeploy.getBootstrapStatus(req.params.id);
   if (!status) return res.status(404).json({ error: "No bootstrap job found" });
   res.json(status);
+});
+
+/**
+ * GET /machines/:id/port-map
+ * Returns stack service port statuses + NPM proxy host list for a machine.
+ */
+app.get("/machines/:id/port-map", requireAuth, async (req, res) => {
+  const machine = machines.getMachine(req.params.id);
+  if (!machine) return res.status(404).json({ error: "Machine not found" });
+  try {
+    res.json(await remoteDeploy.getPortMap(machine));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**

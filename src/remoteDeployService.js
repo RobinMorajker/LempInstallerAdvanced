@@ -600,4 +600,51 @@ async function bootstrapStack(machine) {
   }
 }
 
-module.exports = { deploy, destroy, testConnection, bootstrapStack, getBootstrapStatus };
+// ── Port map ───────────────────────────────────────────────────────────────────
+
+const STACK_PORT_DEFS = [
+  { port: 80,   label: "NPM HTTP",       container: "lemp_npm"         },
+  { port: 81,   label: "NPM Admin UI",   container: "lemp_npm"         },
+  { port: 443,  label: "NPM HTTPS",      container: "lemp_npm"         },
+  { port: 3000, label: "Deploy Engine",  container: "lemp_deploy"      },
+  { port: 3306, label: "MariaDB",        container: "lemp_db"          },
+  { port: 8080, label: "Default Nginx",  container: "lemp_nginx"       },
+  { port: 8082, label: "phpMyAdmin",     container: "lemp_phpmyadmin"  },
+];
+
+async function getPortMap(machine) {
+  // ── 1. Which stack containers are running? ──────────────────────────────
+  const running = new Set();
+  try {
+    await withSSH(machine, async ({ execSafe }) => {
+      const out = await execSafe(
+        `docker ps --filter "name=lemp_" --format '{{.Names}}' 2>/dev/null`
+      );
+      out.split("\n").map(n => n.trim()).filter(Boolean).forEach(n => running.add(n));
+    });
+  } catch (_) { /* SSH unreachable — all shown as down */ }
+
+  const stackPorts = STACK_PORT_DEFS.map(d => ({ ...d, running: running.has(d.container) }));
+
+  // ── 2. NPM proxy hosts ──────────────────────────────────────────────────
+  let proxyHosts = [];
+  try {
+    const { token, npmUrl } = await _getNpmToken(machine);
+    const { data } = await axios.get(`${npmUrl}/nginx/proxy-hosts`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000
+    });
+    proxyHosts = data.map(h => ({
+      id:          h.id,
+      domains:     h.domain_names || [],
+      forwardHost: h.forward_host,
+      forwardPort: h.forward_port,
+      ssl:         !!(h.ssl_forced || h.certificate_id > 0),
+      enabled:     h.enabled !== 0
+    }));
+  } catch (_) { /* NPM unreachable */ }
+
+  return { stackPorts, proxyHosts };
+}
+
+module.exports = { deploy, destroy, testConnection, bootstrapStack, getBootstrapStatus, getPortMap };

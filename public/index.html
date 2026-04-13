@@ -286,6 +286,55 @@
     .badge-local               { background: #1a2230; color: var(--info); }
     .badge-remote              { background: #2a1a30; color: #bc8cff; }
 
+    /* ── Port map panel ── */
+    .pm-panel {
+      padding: 14px 16px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .pm-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .pm-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .pm-row:last-child { border-bottom: none; }
+    .pm-port {
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--info);
+      min-width: 38px;
+    }
+    .pm-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .pm-up   { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+    .pm-down { background: var(--danger); }
+    .pm-label { flex: 1; color: var(--text); }
+    .pm-sub   { font-size: 11px; color: var(--muted); font-family: monospace; }
+    .pm-badge-ssl {
+      font-size: 10px; padding: 1px 5px; border-radius: 4px;
+      background: #1a3a22; color: var(--accent); font-weight: 600;
+    }
+    .pm-badge-off {
+      font-size: 10px; padding: 1px 5px; border-radius: 4px;
+      background: #2a1a1a; color: var(--danger);
+    }
+    .pm-loading { color: var(--muted); font-size: 12px; padding: 8px 0; }
+
     /* ── Quick Access links ── */
     .qa-grid {
       display: grid;
@@ -744,7 +793,7 @@
       return;
     }
     body.innerHTML = allMachines.map(m => `
-      <tr>
+      <tr id="mrow_${esc(m.id)}">
         <td style="font-weight:500">${esc(m.name)}</td>
         <td class="mono">${esc(m.host)}:${m.port || 22}</td>
         <td>${m.hasKey
@@ -756,9 +805,69 @@
           <button class="btn btn-test" onclick="savePassphrase('${esc(m.id)}', '${esc(m.name)}')">Save</button>
           <button class="btn btn-test" onclick="testMachine('${esc(m.id)}', '${esc(m.name)}')">Test</button>
           <button class="btn btn-test" onclick="bootstrapMachine('${esc(m.id)}', '${esc(m.name)}')" style="border-color:var(--warn);color:var(--warn)" title="Clone repo + start LEMP stack on this machine">Stack</button>
+          <button class="btn btn-test" id="pmBtn_${esc(m.id)}" onclick="togglePortMap('${esc(m.id)}')" style="border-color:var(--info);color:var(--info)" title="Show port &amp; domain usage">Ports</button>
           <button class="btn btn-danger" onclick="removeMachine('${esc(m.id)}', '${esc(m.name)}')">Remove</button>
         </td>
+      </tr>
+      <tr id="pmrow_${esc(m.id)}" style="display:none">
+        <td colspan="4" style="padding:0">
+          <div class="pm-panel" id="pmcontent_${esc(m.id)}">
+            <div class="pm-loading">⏳ Loading port map…</div>
+          </div>
+        </td>
       </tr>`).join('');
+  }
+
+  // ── Port map toggle ───────────────────────────────────────────────────────────
+  async function togglePortMap(id) {
+    const row  = document.getElementById(`pmrow_${id}`);
+    const btn  = document.getElementById(`pmBtn_${id}`);
+    const open = row.style.display !== 'none';
+    row.style.display = open ? 'none' : '';
+    btn.style.background = open ? '' : 'var(--info)';
+    btn.style.color      = open ? 'var(--info)' : '#0d1117';
+    if (open) return;
+
+    const content = document.getElementById(`pmcontent_${id}`);
+    content.innerHTML = '<div class="pm-loading">⏳ Fetching port & domain data…</div>';
+
+    try {
+      const res = await fetch(`/machines/${id}/port-map`);
+      if (!res.ok) throw new Error((await res.json()).error);
+      const { stackPorts, proxyHosts } = await res.json();
+
+      const stackHtml = stackPorts.map(p => `
+        <div class="pm-row">
+          <span class="pm-port">:${p.port}</span>
+          <span class="pm-dot ${p.running ? 'pm-up' : 'pm-down'}"></span>
+          <span class="pm-label">${esc(p.label)}</span>
+          <span class="pm-sub">${esc(p.container)}</span>
+        </div>`).join('');
+
+      const proxyHtml = proxyHosts.length
+        ? proxyHosts.map(h => `
+          <div class="pm-row">
+            <span class="pm-port">${h.ssl ? ':443' : ':80'}</span>
+            <span class="pm-dot ${h.enabled ? 'pm-up' : 'pm-down'}"></span>
+            <span class="pm-label">${esc(h.domains.join(', '))}</span>
+            <span class="pm-sub">→ ${esc(h.forwardHost)}:${h.forwardPort}</span>
+            ${h.ssl ? '<span class="pm-badge-ssl">SSL</span>' : ''}
+            ${!h.enabled ? '<span class="pm-badge-off">off</span>' : ''}
+          </div>`).join('')
+        : '<div style="color:var(--muted);font-size:12px;padding:4px 0">No proxy routes configured yet.</div>';
+
+      content.innerHTML = `
+        <div>
+          <div class="pm-section-title">Stack Services</div>
+          ${stackHtml}
+        </div>
+        <div>
+          <div class="pm-section-title">Domain Routes (port 80/443 via NPM)</div>
+          ${proxyHtml}
+        </div>`;
+    } catch (e) {
+      content.innerHTML = `<div style="color:var(--danger);font-size:12px">Failed: ${esc(e.message)}</div>`;
+    }
   }
 
   function updateTargetDropdown() {
