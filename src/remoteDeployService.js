@@ -482,8 +482,21 @@ async function bootstrapStack(machine) {
       const dbState = await execSafe(
         `docker inspect -f '{{.State.Running}}' lemp_db 2>/dev/null || echo false`
       );
-      if (dbState.trim() === "true") {
-        update("done", "LEMP stack is already running — nothing to do.");
+      const pmaState = await execSafe(
+        `docker inspect -f '{{.State.Running}}' lemp_phpmyadmin 2>/dev/null || echo false`
+      );
+      if (dbState.trim() === "true" && pmaState.trim() === "true") {
+        update("done", "LEMP stack is already running (including phpMyAdmin) — nothing to do.");
+        return;
+      }
+      // Stack running but phpMyAdmin missing — bring it up
+      if (dbState.trim() === "true" && pmaState.trim() !== "true") {
+        update("running", "Stack running but phpMyAdmin is missing — pulling and starting it…");
+        const stackDir2 = "$HOME/LempInstallerAdvanced";
+        await execSafe(`cd ${stackDir2} && git pull --ff-only 2>&1 | tail -3`);
+        await execSafe(`cd ${stackDir2} && docker compose pull phpmyadmin 2>&1 | tail -3`);
+        await execSafe(`cd ${stackDir2} && docker compose up -d phpmyadmin`);
+        update("done", "phpMyAdmin started successfully!");
         return;
       }
 
@@ -532,12 +545,18 @@ async function bootstrapStack(machine) {
         update("running", `Image ${machine.phpImage} already exists — skipping build.`);
       }
 
-      // ── 6. Start stack ─────────────────────────────────────────────────
+      // ── 6. Pull images ─────────────────────────────────────────────────
+      update("running", "Pulling latest images (nginx, mariadb, redis, npm, phpmyadmin)…");
+      // --ignore-buildable skips services with a 'build:' block (php, deploy)
+      const pullOut = await execSafe(`cd ${stackDir} && docker compose pull --ignore-buildable 2>&1 | tail -5`);
+      if (pullOut.trim()) update("running", pullOut.trim());
+
+      // ── 7. Start stack ─────────────────────────────────────────────────
       update("running", "Running: docker compose up -d …");
       const composeOut = await exec(`cd ${stackDir} && docker compose up -d --remove-orphans`);
       if (composeOut) update("running", composeOut);
 
-      // ── 7. Wait for MariaDB healthy ────────────────────────────────────
+      // ── 8. Wait for MariaDB healthy ────────────────────────────────────
       update("running", "Waiting for MariaDB to become healthy…");
       let healthy = false;
       for (let i = 0; i < 30; i++) {
@@ -551,7 +570,7 @@ async function bootstrapStack(machine) {
       }
       if (!healthy) throw new Error("MariaDB did not become healthy within 150 seconds.");
 
-      // ── 8. Wait for NPM API to accept connections ──────────────────────
+      // ── 9. Wait for NPM API to accept connections ──────────────────────
       update("running", "Waiting for Nginx Proxy Manager to be ready…");
       for (let i = 0; i < 12; i++) {
         await new Promise(r => setTimeout(r, 5000));
@@ -562,7 +581,19 @@ async function bootstrapStack(machine) {
         if (npmReady.trim() === "200") break;
       }
 
-      update("done", "LEMP stack is running and healthy!");
+      // ── 10. Wait for phpMyAdmin ────────────────────────────────────────
+      update("running", "Waiting for phpMyAdmin to be ready…");
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pmaReady = await execSafe(
+          `curl -s -o /dev/null -w '%{http_code}' http://localhost:8082/ 2>/dev/null || echo 000`
+        );
+        const code = pmaReady.trim();
+        update("running", `phpMyAdmin: HTTP ${code} (${(i + 1) * 5}s elapsed)`);
+        if (code === "200" || code === "302") break;
+      }
+
+      update("done", "LEMP stack is running and healthy! (MariaDB ✓  NPM ✓  phpMyAdmin ✓)");
     });
   } catch (err) {
     update("failed", `Error: ${err.message}`);
