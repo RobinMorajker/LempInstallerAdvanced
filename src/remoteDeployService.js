@@ -107,66 +107,63 @@ async function _getNpmToken(machine) {
   const identity = machine.npmEmail    || "admin@example.com";
   const secret   = machine.npmPassword || "changeme";
 
-  // Try machine credentials first
-  try {
-    const { data } = await axios.post(
-      `${npmUrl}/tokens`,
-      { identity, secret },
-      { timeout: 15000 }
-    );
-    return { token: data.token, npmUrl };
-  } catch (e) {
-    if (!e.response || (e.response.status !== 400 && e.response.status !== 401)) throw e;
-    // Fall through to first-run seeding below
+  async function _tryLogin(id, sec) {
+    const { data } = await axios.post(`${npmUrl}/tokens`, { identity: id, secret: sec }, { timeout: 15000 });
+    return data.token;
   }
 
-  // NPM may still be initialising its DB — retry default creds up to 6× with 10s gaps
-  const NPM_DEFAULTS = { identity: "admin@example.com", secret: "changeme" };
-  let seedToken;
-  for (let attempt = 1; attempt <= 6; attempt++) {
+  // Retry loop — handles: machine creds / default creds (seed) / first-run (no users yet)
+  // Up to 12 attempts × 5 s = 1 min total wait for NPM to finish initialising
+  for (let attempt = 1; attempt <= 12; attempt++) {
+
+    // ── 1. Machine credentials ────────────────────────────────────────────────
     try {
-      const { data } = await axios.post(
-        `${npmUrl}/tokens`,
-        NPM_DEFAULTS,
-        { timeout: 15000 }
-      );
-      seedToken = data.token;
-      break;
-    } catch (e2) {
-      if (attempt === 6) {
-        throw new Error(
-          `NPM login failed after ${attempt} attempts with both machine credentials and defaults ` +
-          `— NPM may not be ready or credentials were already changed. (${e2.message})`
-        );
+      const token = await _tryLogin(identity, secret);
+      return { token, npmUrl };
+    } catch (e) {
+      if (e.response?.status !== 400 && e.response?.status !== 401) throw e;
+      console.log(`[remote] NPM machine-creds failed (${e.response?.status}): ${JSON.stringify(e.response?.data)}`);
+    }
+
+    // ── 2. Default credentials → seed machine creds ───────────────────────────
+    try {
+      const seedToken = await _tryLogin("admin@example.com", "changeme");
+      const seedAuth  = { headers: { Authorization: `Bearer ${seedToken}` } };
+      const { data: me } = await axios.get(`${npmUrl}/users/me`, seedAuth);
+      await axios.put(`${npmUrl}/users/${me.id}`,
+        { name: me.name, nickname: me.nickname, email: identity, roles: me.roles, is_disabled: false },
+        seedAuth);
+      await axios.put(`${npmUrl}/users/${me.id}/auth`,
+        { type: "password", current: "changeme", secret },
+        seedAuth);
+      const token = await _tryLogin(identity, secret);
+      console.log(`[remote] NPM default-creds seeded for ${machine.host}`);
+      return { token, npmUrl };
+    } catch (e) {
+      if (e.response?.status !== 400 && e.response?.status !== 401) throw e;
+      console.log(`[remote] NPM default-creds failed (${e.response?.status}): ${JSON.stringify(e.response?.data)}`);
+    }
+
+    // ── 3. First-run: no users at all — create admin account ─────────────────
+    try {
+      await axios.post(`${npmUrl}/users`, {
+        name: "Admin", nickname: "admin", email: identity,
+        is_disabled: false, roles: ["admin"],
+        auth: { type: "password", secret }
+      }, { timeout: 15000 });
+      const token = await _tryLogin(identity, secret);
+      console.log(`[remote] NPM first-run account created for ${machine.host}`);
+      return { token, npmUrl };
+    } catch (e) {
+      // If all three paths fail, NPM is probably still starting — wait and retry
+      const detail = e.response ? `HTTP ${e.response.status}: ${JSON.stringify(e.response.data)}` : e.message;
+      if (attempt === 12) {
+        throw new Error(`NPM not reachable after ${attempt} attempts — ${detail}`);
       }
-      console.log(`[remote] NPM not ready yet (attempt ${attempt}/6) — retrying in 10s…`);
-      await new Promise(r => setTimeout(r, 10000));
+      console.log(`[remote] NPM not ready (attempt ${attempt}/12) — retrying in 5s… (${detail})`);
+      await new Promise(r => setTimeout(r, 5000));
     }
   }
-
-  // Update email + password to machine credentials
-  const seedAuth = { headers: { Authorization: `Bearer ${seedToken}` } };
-  const { data: me } = await axios.get(`${npmUrl}/users/me`, seedAuth);
-  await axios.put(
-    `${npmUrl}/users/${me.id}`,
-    { name: me.name, nickname: me.nickname, email: identity,
-      roles: me.roles, is_disabled: false },
-    seedAuth
-  );
-  await axios.put(
-    `${npmUrl}/users/${me.id}/auth`,
-    { type: "password", current: "changeme", secret },
-    seedAuth
-  );
-
-  // Re-login with new credentials
-  const { data: fresh } = await axios.post(
-    `${npmUrl}/tokens`,
-    { identity, secret },
-    { timeout: 15000 }
-  );
-  console.log(`[remote] NPM credentials seeded for ${machine.host}`);
-  return { token: fresh.token, npmUrl };
 }
 
 async function _configureProxy(machine, domain, nginxContainer, ssl, email) {

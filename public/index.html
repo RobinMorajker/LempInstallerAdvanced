@@ -919,6 +919,10 @@
       if (resp.status === 401) return;
       const data = await resp.json();
       const body = document.getElementById('containersBody');
+      if (!resp.ok) {
+        body.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--danger)">Docker unavailable: ${esc(data.error||resp.statusText)}</td></tr>`;
+        return;
+      }
       document.getElementById('containerCount').textContent = data.length;
       if (!data.length) {
         body.innerHTML = '<tr><td colspan="4" class="empty">No containers.</td></tr>';
