@@ -91,6 +91,24 @@ services:
     networks:
       - lemp_net
 
+  # ── phpMyAdmin ─────────────────────────────────────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: lemp_phpmyadmin
+    restart: always
+    ports:
+      - "8082:80"
+    environment:
+      PMA_HOST: lemp_db
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      UPLOAD_LIMIT: 64M
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - lemp_net
+
   # ── Deploy Engine ──────────────────────────────────────────────────────────
   deploy:
     build:

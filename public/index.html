@@ -286,6 +286,31 @@
     .badge-local               { background: #1a2230; color: var(--info); }
     .badge-remote              { background: #2a1a30; color: #bc8cff; }
 
+    /* ── Quick Access links ── */
+    .qa-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 16px;
+    }
+    .qa-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color .15s, background .15s;
+    }
+    .qa-item:hover { border-color: var(--info); background: #0d1f33; }
+    .qa-item .qa-icon { font-size: 20px; line-height: 1; }
+    .qa-item .qa-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .qa-item .qa-desc { font-size: 11px; color: var(--muted); }
+    .qa-item .qa-port { font-size: 10px; font-family: monospace; color: var(--info); margin-top: 4px; }
+
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 24px; right: 24px;
@@ -527,6 +552,13 @@
       </div>
       <div class="card-body" style="padding:0">
         <pre id="bootstrapLog" style="margin:0;padding:16px;font-size:12px;color:var(--muted);background:var(--bg);max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-word"></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">&#128279; Quick Access</div>
+      <div class="qa-grid" id="qaGrid">
+        <!-- populated by buildQuickLinks() -->
       </div>
     </div>
 
@@ -994,11 +1026,54 @@
     }
   });
 
+  // ── Quick Access links ────────────────────────────────────────────────────────
+  function buildQuickLinks() {
+    const h = window.location.hostname;
+    const links = [
+      {
+        icon: '🗄️',
+        name: 'phpMyAdmin',
+        desc: 'Manage MariaDB databases, tables & users',
+        href: `http://${h}:8082`,
+        port: ':8082'
+      },
+      {
+        icon: '🔀',
+        name: 'NPM Admin',
+        desc: 'Manage proxy hosts, SSL certificates',
+        href: `http://${h}:81`,
+        port: ':81'
+      },
+      {
+        icon: '🌐',
+        name: 'Default Site',
+        desc: 'Default nginx vhost (static files)',
+        href: `http://${h}:8080`,
+        port: ':8080'
+      },
+      {
+        icon: '⚙️',
+        name: 'Deploy Engine API',
+        desc: 'REST API — health, deployments, machines',
+        href: `http://${h}:3000/health`,
+        port: ':3000'
+      },
+    ];
+    document.getElementById('qaGrid').innerHTML = links.map(l => `
+      <a class="qa-item" href="${l.href}" target="_blank" rel="noopener">
+        <span class="qa-icon">${l.icon}</span>
+        <span class="qa-name">${l.name}</span>
+        <span class="qa-desc">${l.desc}</span>
+        <span class="qa-port">${l.href.replace(/^https?:\/\/[^:\/]+/, '')||l.port}</span>
+      </a>`).join('');
+  }
+
   // ── Poll ──────────────────────────────────────────────────────────────────────
   loadAuth();
   loadMachines();
   loadDeployments();
   loadContainers();
+  buildQuickLinks();
   setInterval(() => { loadDeployments(); loadContainers(); }, 10000);
 </script>
 </body>
