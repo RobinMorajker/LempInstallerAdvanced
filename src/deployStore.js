@@ -1,10 +1,39 @@
 /**
- * Shared in-memory deployment status store.
- * Used by both localDeployService and remoteDeployService so that
- * GET /deployments and GET /deploy/:id reflect all deployments regardless
- * of where they ran.
+ * Deployment status store — persisted to .deployments.json so records
+ * survive server restarts.  In-memory Map is the hot path; disk is written
+ * on every change and read once at startup.
  */
-const deployments = new Map();
+const fs   = require("fs");
+const path = require("path");
+
+const FILE = path.join(__dirname, "..", ".deployments.json");
+
+// ── Persistence helpers ───────────────────────────────────────────────────────
+
+function _load() {
+  try {
+    if (!fs.existsSync(FILE)) return new Map();
+    const raw = JSON.parse(fs.readFileSync(FILE, "utf8"));
+    return new Map(Object.entries(raw));
+  } catch {
+    return new Map();
+  }
+}
+
+function _save(map) {
+  try {
+    const obj = Object.fromEntries(map);
+    fs.writeFileSync(FILE, JSON.stringify(obj, null, 2), "utf8");
+  } catch (e) {
+    console.error("[deployStore] Failed to persist:", e.message);
+  }
+}
+
+// ── In-memory store (loaded from disk at startup) ─────────────────────────────
+
+const deployments = _load();
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 function setStatus(deployId, patch) {
   const current = deployments.get(deployId) || {};
@@ -14,6 +43,7 @@ function setStatus(deployId, patch) {
     ...patch,
     updatedAt: new Date().toISOString()
   });
+  _save(deployments);
 }
 
 function getStatus(deployId) {
@@ -35,6 +65,7 @@ function removeByApp(appName, domain) {
       deployments.delete(id);
     }
   }
+  _save(deployments);
 }
 
 module.exports = { setStatus, getStatus, listDeployments, removeByApp };

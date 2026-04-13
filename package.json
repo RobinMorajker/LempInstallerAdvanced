@@ -8,7 +8,7 @@
     "dev": "nodemon --ignore apps/ --ignore .sessions/ --ignore '*.db' src/server.js"
   },
   "nodemonConfig": {
-    "ignore": ["apps/", ".sessions/", "*.db", "*.db-shm", "*.db-wal", ".machines.json"]
+    "ignore": ["apps/", ".sessions/", "*.db", "*.db-shm", "*.db-wal", ".machines.json", ".deployments.json"]
   },
   "dependencies": {
     "axios": "^1.7.2",

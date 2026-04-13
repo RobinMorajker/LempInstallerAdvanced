@@ -6,6 +6,7 @@ node_modules/
 apps/
 .env
 .machines.json
+.deployments.json
 cookies.txt
 .claude/settings.local.json
 push_to_github.sh
