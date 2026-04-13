@@ -4,7 +4,7 @@ const session = require("express-session");
 const SQLiteStore = require("connect-sqlite3")(session);
 const localDeploy   = require("./deployService");
 const remoteDeploy  = require("./remoteDeployService");
-const { getStatus, listDeployments } = require("./deployStore");
+const { getStatus, listDeployments, removeByApp } = require("./deployStore");
 const { listAppContainers, inspectContainer } = require("./dockerService");
 const machines      = require("./machineService");
 const authRouter    = require("./routes/auth");
@@ -144,6 +144,7 @@ app.delete("/deploy/:appName", requireAuth, async (req, res) => {
     } else {
       await localDeploy.destroy(appName, domain);
     }
+    removeByApp(appName, domain);
     res.json({ success: true, appName, domain });
   } catch (err) {
     res.status(500).json({ error: err.message });

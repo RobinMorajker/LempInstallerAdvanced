@@ -25,4 +25,16 @@ function listDeployments() {
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-module.exports = { setStatus, getStatus, listDeployments };
+/**
+ * Remove all deployment records for a given appName (+ optional domain).
+ * Called after a successful destroy so the entry disappears from the list.
+ */
+function removeByApp(appName, domain) {
+  for (const [id, dep] of deployments) {
+    if (dep.appName === appName && (!domain || dep.domain === domain)) {
+      deployments.delete(id);
+    }
+  }
+}
+
+module.exports = { setStatus, getStatus, listDeployments, removeByApp };
