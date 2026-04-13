@@ -1055,8 +1055,8 @@
         icon: '⚙️',
         name: 'Deploy Engine API',
         desc: 'REST API — health, deployments, machines',
-        href: `http://${h}:3000/health`,
-        port: ':3000'
+        href: `${window.location.origin}/health`,
+        port: '/health'
       },
     ];
     document.getElementById('qaGrid').innerHTML = links.map(l => `
