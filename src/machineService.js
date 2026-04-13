@@ -22,7 +22,7 @@ function _save(list) {
 /** Strip secrets before sending to the browser */
 function _safe(m) {
   // eslint-disable-next-line no-unused-vars
-  const { privateKey, dbRootPassword, dbAppPassword, npmPassword, ...rest } = m;
+  const { privateKey, passphrase, dbRootPassword, dbAppPassword, npmPassword, ...rest } = m;
   return { ...rest, hasKey: !!(privateKey && privateKey.trim().length > 20) };
 }
 
@@ -35,7 +35,8 @@ function addMachine({
   port           = 22,
   user           = "pi",
   privateKey,
-  appsDir        = "/var/www/apps",
+  passphrase,
+  appsDir,
   dockerNetwork  = "lemp_net",
   phpImage       = "lemp-php-custom",
   dbRootPassword = "changeme_root",
@@ -46,13 +47,15 @@ function addMachine({
   if (!name || !host || !user || !privateKey) {
     throw new Error("name, host, user, and privateKey are required");
   }
+  const resolvedAppsDir = appsDir || `/home/${user}/apps`;
   const list = _load();
   const m = {
     id: uuid(),
     name, host,
     port: Number(port),
     user, privateKey,
-    appsDir, dockerNetwork, phpImage,
+    ...(passphrase ? { passphrase } : {}),
+    appsDir: resolvedAppsDir, dockerNetwork, phpImage,
     dbRootPassword, dbAppPassword,
     npmEmail, npmPassword,
     createdAt: new Date().toISOString()
@@ -76,4 +79,26 @@ function removeMachine(id) {
   _save(_load().filter(m => m.id !== id));
 }
 
-module.exports = { addMachine, listMachines, getMachine, removeMachine };
+/**
+ * Patch mutable fields on an existing machine.
+ * Only whitelisted keys are accepted; secrets like privateKey cannot be
+ * changed this way (would require re-adding the machine).
+ */
+function patchMachine(id, patch) {
+  const allowed = ["passphrase", "name", "user", "port", "appsDir",
+                   "dockerNetwork", "phpImage", "dbRootPassword",
+                   "dbAppPassword", "npmEmail", "npmPassword"];
+  const list = _load();
+  const idx  = list.findIndex(m => m.id === id);
+  if (idx === -1) throw new Error("Machine not found");
+  const safe = Object.fromEntries(
+    Object.entries(patch).filter(([k]) => allowed.includes(k))
+  );
+  // Allow clearing passphrase by passing empty string
+  if ("passphrase" in safe && !safe.passphrase) delete list[idx].passphrase;
+  else Object.assign(list[idx], safe);
+  _save(list);
+  return _safe(list[idx]);
+}
+
+module.exports = { addMachine, patchMachine, listMachines, getMachine, removeMachine };

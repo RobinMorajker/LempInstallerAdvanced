@@ -62,10 +62,11 @@ function withSSH(machine, fn) {
     conn.on("error", reject);
 
     conn.connect({
-      host:        machine.host,
-      port:        machine.port || 22,
-      username:    machine.user,
-      privateKey:  machine.privateKey,
+      host:         machine.host,
+      port:         machine.port || 22,
+      username:     machine.user,
+      privateKey:   machine.privateKey,
+      ...(machine.passphrase ? { passphrase: machine.passphrase } : {}),
       readyTimeout: 20000
     });
   });
@@ -102,13 +103,70 @@ function _nginxConf(fpmHost, docRoot) {
 // ── Remote NPM helpers ─────────────────────────────────────────────────────────
 
 async function _getNpmToken(machine) {
-  const npmUrl = `http://${machine.host}:81/api`;
-  const { data } = await axios.post(
+  const npmUrl   = `http://${machine.host}:81/api`;
+  const identity = machine.npmEmail    || "admin@example.com";
+  const secret   = machine.npmPassword || "changeme";
+
+  // Try machine credentials first
+  try {
+    const { data } = await axios.post(
+      `${npmUrl}/tokens`,
+      { identity, secret },
+      { timeout: 15000 }
+    );
+    return { token: data.token, npmUrl };
+  } catch (e) {
+    if (!e.response || (e.response.status !== 400 && e.response.status !== 401)) throw e;
+    // Fall through to first-run seeding below
+  }
+
+  // NPM may still be initialising its DB — retry default creds up to 6× with 10s gaps
+  const NPM_DEFAULTS = { identity: "admin@example.com", secret: "changeme" };
+  let seedToken;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      const { data } = await axios.post(
+        `${npmUrl}/tokens`,
+        NPM_DEFAULTS,
+        { timeout: 15000 }
+      );
+      seedToken = data.token;
+      break;
+    } catch (e2) {
+      if (attempt === 6) {
+        throw new Error(
+          `NPM login failed after ${attempt} attempts with both machine credentials and defaults ` +
+          `— NPM may not be ready or credentials were already changed. (${e2.message})`
+        );
+      }
+      console.log(`[remote] NPM not ready yet (attempt ${attempt}/6) — retrying in 10s…`);
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
+
+  // Update email + password to machine credentials
+  const seedAuth = { headers: { Authorization: `Bearer ${seedToken}` } };
+  const { data: me } = await axios.get(`${npmUrl}/users/me`, seedAuth);
+  await axios.put(
+    `${npmUrl}/users/${me.id}`,
+    { name: me.name, nickname: me.nickname, email: identity,
+      roles: me.roles, is_disabled: false },
+    seedAuth
+  );
+  await axios.put(
+    `${npmUrl}/users/${me.id}/auth`,
+    { type: "password", current: "changeme", secret },
+    seedAuth
+  );
+
+  // Re-login with new credentials
+  const { data: fresh } = await axios.post(
     `${npmUrl}/tokens`,
-    { identity: machine.npmEmail, secret: machine.npmPassword },
+    { identity, secret },
     { timeout: 15000 }
   );
-  return { token: data.token, npmUrl };
+  console.log(`[remote] NPM credentials seeded for ${machine.host}`);
+  return { token: fresh.token, npmUrl };
 }
 
 async function _configureProxy(machine, domain, nginxContainer, ssl, email) {
@@ -216,6 +274,17 @@ async function _runDeploy({ deployId, name, appPath, machine, repo, domain, ssl,
 
   // ── Steps 1–3 over one SSH connection ──────────────────────────────────────
   await withSSH(machine, async ({ exec, execSafe }) => {
+
+    // ── Preflight: base LEMP stack must be running ───────────────────────
+    const dbRunning = await execSafe(
+      `docker inspect -f '{{.State.Running}}' lemp_db 2>/dev/null || echo false`
+    );
+    if (dbRunning.trim() !== "true") {
+      throw new Error(
+        `Base LEMP stack is not running on ${machine.host}. ` +
+        `SSH in and run: cd ~/LempInstallerAdvanced && docker compose up -d`
+      );
+    }
 
     // ── Step 1: Clone / pull ─────────────────────────────────────────────
     store.setStatus(deployId, { status: "cloning" });
@@ -388,4 +457,119 @@ async function testConnection(machine) {
   });
 }
 
-module.exports = { deploy, destroy, testConnection };
+// ── Bootstrap LEMP stack ───────────────────────────────────────────────────────
+
+const _bootstrapStatus = new Map(); // machineId → { status, log, updatedAt }
+
+function getBootstrapStatus(machineId) {
+  return _bootstrapStatus.get(machineId) || null;
+}
+
+async function bootstrapStack(machine) {
+  const id  = machine.id;
+  const log = [];
+
+  const update = (status, msg) => {
+    log.push(msg);
+    _bootstrapStatus.set(id, { status, log: [...log], updatedAt: new Date().toISOString() });
+    console.log(`[bootstrap:${machine.name}] ${msg}`);
+  };
+
+  update("running", "Connecting via SSH…");
+
+  try {
+    await withSSH(machine, async ({ exec, execSafe }) => {
+
+      // ── 1. Check if already running ────────────────────────────────────
+      update("running", "Checking LEMP stack status…");
+      const dbState = await execSafe(
+        `docker inspect -f '{{.State.Running}}' lemp_db 2>/dev/null || echo false`
+      );
+      if (dbState.trim() === "true") {
+        update("done", "LEMP stack is already running — nothing to do.");
+        return;
+      }
+
+      // ── 2. Verify Docker is present ────────────────────────────────────
+      update("running", "Checking Docker installation…");
+      const dockerVer = await exec("docker --version");
+      update("running", dockerVer);
+
+      // ── 3. Clone or pull repo ──────────────────────────────────────────
+      const stackDir = "$HOME/LempInstallerAdvanced";
+      const dirExists = await execSafe(`[ -d ${stackDir} ] && echo yes || echo no`);
+
+      if (dirExists.trim() === "yes") {
+        update("running", "Repo present — pulling latest…");
+        await execSafe(`git -C ${stackDir} pull --ff-only`);
+      } else {
+        update("running", "Cloning LempInstallerAdvanced…");
+        await exec(
+          `git clone https://github.com/RobinMorajker/LempInstallerAdvanced.git ${stackDir}`
+        );
+      }
+
+      // ── 4. Write .env ──────────────────────────────────────────────────
+      update("running", "Writing .env on remote…");
+      const envContent = [
+        `DB_ROOT_PASSWORD=${machine.dbRootPassword}`,
+        `DB_APP_PASSWORD=${machine.dbAppPassword}`,
+        `DB_NAME=lemp_default`,
+        `DB_USER=lemp_user`,
+        `DB_PASSWORD=${machine.dbAppPassword}`,
+        `NPM_EMAIL=${machine.npmEmail   || "admin@example.com"}`,
+        `NPM_PASSWORD=${machine.npmPassword || "changeme_npm"}`,
+      ].join("\n");
+      const envB64 = Buffer.from(envContent).toString("base64");
+      await exec(`printf '%s' '${envB64}' | base64 -d > ${stackDir}/.env`);
+
+      // ── 5. Build PHP image if missing ──────────────────────────────────
+      const hasImg = await execSafe(
+        `docker image inspect ${machine.phpImage} >/dev/null 2>&1 && echo yes || echo no`
+      );
+      if (hasImg.trim() !== "yes") {
+        update("running", `Building ${machine.phpImage} image — this takes several minutes, please wait…`);
+        await exec(`docker build -t ${machine.phpImage} ${stackDir}/php`);
+        update("running", "PHP image built successfully.");
+      } else {
+        update("running", `Image ${machine.phpImage} already exists — skipping build.`);
+      }
+
+      // ── 6. Start stack ─────────────────────────────────────────────────
+      update("running", "Running: docker compose up -d …");
+      const composeOut = await exec(`cd ${stackDir} && docker compose up -d --remove-orphans`);
+      if (composeOut) update("running", composeOut);
+
+      // ── 7. Wait for MariaDB healthy ────────────────────────────────────
+      update("running", "Waiting for MariaDB to become healthy…");
+      let healthy = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const health = await execSafe(
+          `docker inspect -f '{{.State.Health.Status}}' lemp_db 2>/dev/null || echo unknown`
+        );
+        const s = health.trim();
+        update("running", `MariaDB status: ${s} (${(i + 1) * 5}s elapsed)`);
+        if (s === "healthy") { healthy = true; break; }
+      }
+      if (!healthy) throw new Error("MariaDB did not become healthy within 150 seconds.");
+
+      // ── 8. Wait for NPM API to accept connections ──────────────────────
+      update("running", "Waiting for Nginx Proxy Manager to be ready…");
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const npmReady = await execSafe(
+          `curl -s -o /dev/null -w '%{http_code}' http://localhost:81/api/schema 2>/dev/null || echo 000`
+        );
+        update("running", `NPM API: HTTP ${npmReady.trim()} (${(i + 1) * 5}s elapsed)`);
+        if (npmReady.trim() === "200") break;
+      }
+
+      update("done", "LEMP stack is running and healthy!");
+    });
+  } catch (err) {
+    update("failed", `Error: ${err.message}`);
+  }
+}
+
+module.exports = { deploy, destroy, testConnection, bootstrapStack, getBootstrapStatus };

@@ -149,6 +149,23 @@
     .repo-item .rprivate { font-size: 10px; color: var(--warn); margin-left: 6px; }
     #repoLoading { padding: 16px; text-align: center; color: var(--muted); font-size: 12px; }
 
+    /* ── Selected repo chip ── */
+    #selectedRepoChip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    #selectedRepoChip .chip-icon { font-size: 15px; }
+    #selectedRepoChip .chip-name { font-size: 13px; font-weight: 600; color: var(--accent); flex: 1; }
+    #selectedRepoChip .chip-clear {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px;
+    }
+    #selectedRepoChip .chip-clear:hover { color: var(--danger); }
+
     /* ── Form inputs ── */
     .field { margin-bottom: 16px; }
     label  { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
@@ -334,10 +351,18 @@
       </div>
 
       <form id="deployForm">
-        <div class="field">
+        <!-- Shown when a repo is chosen from the picker -->
+        <div id="selectedRepoChip" style="display:none">
+          <span class="chip-icon">📦</span>
+          <span class="chip-name" id="selectedRepoLabel"></span>
+          <button type="button" class="chip-clear" onclick="clearSelectedRepo()" title="Clear selection">×</button>
+        </div>
+
+        <div class="field" id="repoUrlField">
           <label>GitHub Repo URL</label>
           <input type="url" id="repo" placeholder="https://github.com/user/app.git" required />
         </div>
+
         <div class="field">
           <label>Domain</label>
           <input type="text" id="domain" placeholder="myapp.example.com" required />
@@ -430,6 +455,10 @@
             <label>Private Key <span style="color:var(--danger)">*</span> <span style="color:var(--muted);font-weight:400">(PEM / OpenSSH)</span></label>
             <textarea id="mPrivateKey" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…&#10;-----END OPENSSH PRIVATE KEY-----" required></textarea>
           </div>
+          <div class="field">
+            <label>Key Passphrase <span style="color:var(--muted);font-weight:400">(if key is encrypted)</span></label>
+            <input type="password" id="mPassphrase" placeholder="leave blank if key has no passphrase" />
+          </div>
 
           <!-- Advanced settings -->
           <button type="button" class="adv-toggle" id="advToggle" onclick="toggleAdvanced()">
@@ -439,7 +468,7 @@
             <div class="form-row-2" style="margin-bottom:12px">
               <div class="field" style="margin:0">
                 <label>Apps Dir</label>
-                <input type="text" id="mAppsDir" value="/var/www/apps" />
+                <input type="text" id="mAppsDir" placeholder="/home/{user}/apps (default)" />
               </div>
               <div class="field" style="margin:0">
                 <label>Docker Network</label>
@@ -486,6 +515,18 @@
             <tr><td colspan="4" class="empty">No machines registered.</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Bootstrap log panel (shown during bootstrap) -->
+    <div class="card" id="bootstrapCard" style="display:none">
+      <div class="card-header">
+        &#9881; Stack Bootstrap
+        <span id="bootstrapStatusBadge" style="margin-left:8px"></span>
+        <button class="btn btn-secondary" style="margin-left:auto;font-size:11px" onclick="document.getElementById('bootstrapCard').style.display='none'">Dismiss</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <pre id="bootstrapLog" style="margin:0;padding:16px;font-size:12px;color:var(--muted);background:var(--bg);max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-word"></pre>
       </div>
     </div>
 
@@ -599,13 +640,23 @@
       return;
     }
     list.innerHTML = repos.map(r => `
-      <div class="repo-item" onclick="selectRepo(${JSON.stringify(r.fullName)}, ${JSON.stringify(r.cloneUrl)}, ${JSON.stringify(r.defaultBranch)})">
+      <div class="repo-item"
+        data-fullname="${esc(r.fullName)}"
+        data-clone="${esc(r.cloneUrl)}"
+        data-branch="${esc(r.defaultBranch || 'main')}">
         <div class="rname">
           ${esc(r.fullName)}
           ${r.private ? '<span class="rprivate">private</span>' : ''}
         </div>
         ${r.description ? `<div class="rdesc">${esc(r.description)}</div>` : ''}
       </div>`).join('');
+
+    // Event delegation — works for dynamically rendered items
+    list.onclick = (e) => {
+      const item = e.target.closest('.repo-item');
+      if (!item) return;
+      selectRepo(item, item.dataset.fullname, item.dataset.clone, item.dataset.branch);
+    };
   }
 
   document.getElementById('repoSearch').addEventListener('input', function() {
@@ -616,14 +667,28 @@
     ));
   });
 
-  function selectRepo(fullName, cloneUrl, defaultBranch) {
+  function selectRepo(el, fullName, cloneUrl, defaultBranch) {
+    // Fill form fields
     document.getElementById('repo').value   = cloneUrl;
     document.getElementById('branch').value = defaultBranch || 'main';
     const slug = fullName.split('/')[1].toLowerCase().replace(/[^a-z0-9-]/g, '-');
     document.getElementById('appName').value = slug;
-    document.querySelectorAll('.repo-item').forEach(el => el.classList.remove('selected'));
-    event.currentTarget.classList.add('selected');
-    showToast(`Selected: ${fullName}`, 'ok');
+
+    // Show chip, hide URL field
+    document.getElementById('selectedRepoLabel').textContent = fullName;
+    document.getElementById('selectedRepoChip').style.display = 'flex';
+    document.getElementById('repoUrlField').style.display     = 'none';
+
+    // Highlight selected row
+    document.querySelectorAll('.repo-item').forEach(e => e.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+
+  function clearSelectedRepo() {
+    document.getElementById('repo').value = '';
+    document.getElementById('selectedRepoChip').style.display = 'none';
+    document.getElementById('repoUrlField').style.display     = 'block';
+    document.querySelectorAll('.repo-item').forEach(e => e.classList.remove('selected'));
   }
 
   // ── Machines ──────────────────────────────────────────────────────────────────
@@ -653,8 +718,12 @@
         <td>${m.hasKey
           ? '<span style="color:var(--accent);font-size:11px">&#10003; Key set</span>'
           : '<span style="color:var(--danger);font-size:11px">No key</span>'}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-test" onclick="testMachine('${esc(m.id)}', '${esc(m.name)}')" style="margin-right:6px">Test</button>
+        <td style="white-space:nowrap;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input type="password" id="pp_${esc(m.id)}" placeholder="passphrase…"
+            style="width:110px;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none" />
+          <button class="btn btn-test" onclick="savePassphrase('${esc(m.id)}', '${esc(m.name)}')">Save</button>
+          <button class="btn btn-test" onclick="testMachine('${esc(m.id)}', '${esc(m.name)}')">Test</button>
+          <button class="btn btn-test" onclick="bootstrapMachine('${esc(m.id)}', '${esc(m.name)}')" style="border-color:var(--warn);color:var(--warn)" title="Clone repo + start LEMP stack on this machine">Stack</button>
           <button class="btn btn-danger" onclick="removeMachine('${esc(m.id)}', '${esc(m.name)}')">Remove</button>
         </td>
       </tr>`).join('');
@@ -666,13 +735,68 @@
     // Keep first option (local), replace rest
     while (sel.options.length > 1) sel.remove(1);
     allMachines.forEach(m => {
-      const opt = new Option(`&#128187; ${m.name} (${m.host})`, m.id);
+      const opt = new Option(`💻 ${m.name} (${m.host})`, m.id);
       sel.add(opt);
     });
     // Restore selection if still valid
     if (current && allMachines.find(m => m.id === current)) {
       sel.value = current;
     }
+  }
+
+  async function bootstrapMachine(id, name) {
+    const card    = document.getElementById('bootstrapCard');
+    const logEl   = document.getElementById('bootstrapLog');
+    const badge   = document.getElementById('bootstrapStatusBadge');
+
+    card.style.display = 'block';
+    logEl.textContent  = '';
+    badge.innerHTML    = '<span class="badge badge-pending">starting</span>';
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    try {
+      const res = await fetch(`/machines/${id}/bootstrap`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).error);
+    } catch (e) { showToast('Bootstrap failed to start: ' + e.message, 'err'); return; }
+
+    showToast(`Bootstrapping ${name}… check the Stack Bootstrap panel.`, 'info');
+
+    // Poll for log updates
+    const poll = setInterval(async () => {
+      try {
+        const r    = await fetch(`/machines/${id}/bootstrap-status`);
+        const data = await r.json();
+        logEl.textContent = (data.log || []).join('\n');
+        logEl.scrollTop   = logEl.scrollHeight;
+
+        if (data.status === 'done') {
+          badge.innerHTML = '<span class="badge badge-live">done</span>';
+          showToast(`${name}: LEMP stack ready!`, 'ok');
+          clearInterval(poll);
+        } else if (data.status === 'failed') {
+          badge.innerHTML = '<span class="badge badge-failed">failed</span>';
+          showToast(`${name}: Bootstrap failed — see log.`, 'err');
+          clearInterval(poll);
+        } else {
+          badge.innerHTML = '<span class="badge badge-pending">running</span>';
+        }
+      } catch (_) {}
+    }, 2000);
+  }
+
+  async function savePassphrase(id, name) {
+    const input = document.getElementById(`pp_${id}`);
+    const passphrase = input ? input.value : '';
+    try {
+      const res  = await fetch(`/machines/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase })
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      showToast(`Passphrase saved for ${name}.`, 'ok');
+      if (input) input.value = '';
+    } catch (e) { showToast('Save failed: ' + e.message, 'err'); }
   }
 
   async function testMachine(id, name) {
@@ -724,7 +848,8 @@
       port:            parseInt(document.getElementById('mPort').value) || 22,
       user:            document.getElementById('mUser').value.trim() || 'pi',
       privateKey:      document.getElementById('mPrivateKey').value,
-      appsDir:         document.getElementById('mAppsDir').value.trim() || '/var/www/apps',
+      passphrase:      document.getElementById('mPassphrase').value || undefined,
+      appsDir:         document.getElementById('mAppsDir').value.trim() || undefined,
       dockerNetwork:   document.getElementById('mDockerNetwork').value.trim() || 'lemp_net',
       phpImage:        document.getElementById('mPhpImage').value.trim() || 'lemp-php-custom',
       dbRootPassword:  document.getElementById('mDbRootPassword').value || 'changeme_root',
@@ -741,7 +866,7 @@
       document.getElementById('machineForm').reset();
       document.getElementById('mUser').value = 'pi';
       document.getElementById('mPort').value = '22';
-      document.getElementById('mAppsDir').value = '/var/www/apps';
+      document.getElementById('mAppsDir').value = '';
       document.getElementById('mDockerNetwork').value = 'lemp_net';
       document.getElementById('mPhpImage').value = 'lemp-php-custom';
       toggleAddMachineForm();
@@ -855,6 +980,7 @@
       e.target.reset();
       document.getElementById('branch').value = 'main';
       document.getElementById('ssl').checked  = true;
+      clearSelectedRepo();
       updateTargetDropdown();
     } catch (err) {
       showToast('Deploy failed: ' + err.message, 'err');

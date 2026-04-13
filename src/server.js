@@ -177,12 +177,47 @@ app.post("/machines", requireAuth, (req, res) => {
 });
 
 /**
+ * PATCH /machines/:id
+ * Update mutable fields (passphrase, passwords, port, etc.).
+ */
+app.patch("/machines/:id", requireAuth, (req, res) => {
+  try {
+    const m = machines.patchMachine(req.params.id, req.body);
+    res.json(m);
+  } catch (err) {
+    res.status(err.message === "Machine not found" ? 404 : 400).json({ error: err.message });
+  }
+});
+
+/**
  * DELETE /machines/:id
  * Remove a registered machine.
  */
 app.delete("/machines/:id", requireAuth, (req, res) => {
   machines.removeMachine(req.params.id);
   res.json({ success: true });
+});
+
+/**
+ * POST /machines/:id/bootstrap
+ * Clone repo + build PHP image + start docker compose on the remote machine.
+ * Fires in the background — poll GET /machines/:id/bootstrap-status for progress.
+ */
+app.post("/machines/:id/bootstrap", requireAuth, (req, res) => {
+  const machine = machines.getMachine(req.params.id);
+  if (!machine) return res.status(404).json({ error: "Machine not found" });
+  remoteDeploy.bootstrapStack(machine); // fire-and-forget
+  res.json({ status: "started" });
+});
+
+/**
+ * GET /machines/:id/bootstrap-status
+ * Returns current bootstrap log and status for a machine.
+ */
+app.get("/machines/:id/bootstrap-status", requireAuth, (req, res) => {
+  const status = remoteDeploy.getBootstrapStatus(req.params.id);
+  if (!status) return res.status(404).json({ error: "No bootstrap job found" });
+  res.json(status);
 });
 
 /**
